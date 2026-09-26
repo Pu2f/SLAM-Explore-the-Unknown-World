@@ -158,3 +158,50 @@ def test_front_irs_seeing_side_walls_do_not_block_moves():
     assert m.map_accuracy_pct == 100.0
     assert robot.collisions == 0
     assert result.ir_ticks.get("both", 0) > 0  # the IRs really did fire
+
+
+def test_sharp_does_not_overrule_the_tof_at_a_scan():
+    """Real run 03:46: ToF saw the doorway open (1.59 m), the Sharp caught
+    its corner (0.13 m), the side stayed unknown and was never explored."""
+    maze, _ = WallMap.from_ascii("+---+---+\n|       |\n+---+---+\n")
+    robot = SimRobot(maze, (1, 0), Direction.N, noise=PERFECT_SIM)
+    robot.sharp = lambda: (0.13, None)  # left Sharp: a phantom wall to the W
+    ex = Explorer(robot, DEFAULT)
+    ex.nav.tick(front_tof=False)
+    ex.map.mark_visited((0, 0))
+    ex.scan()
+    assert ex.map.state((0, 0), Direction.W) == EdgeState.OPEN
+
+
+def test_unknown_sides_are_probed_so_nothing_is_left_out():
+    # ToF can never call a side open here, only walls: every opening stays
+    # unknown after scanning and has to be driven through to be learnt.
+    cfg = replace(DEFAULT, perception=replace(DEFAULT.perception, open_margin_m=9.0,
+                                              tof_none_means_open=False))
+    gt = generate_maze(3, 3, seed=6)
+    robot = SimRobot(gt, (0, 0), Direction.N, config=cfg, noise=PERFECT_SIM)
+    robot.sharp = lambda: (0.5, 0.5)  # Sharps never decide either (between wall and open)
+    result = Explorer(robot, cfg).run()
+    m = evaluate(Alignment((0, 0), Direction.N).apply(result.map.to_wallmap()), gt)
+    assert result.reason == "complete"
+    assert len(result.map.visited) == 9
+    assert m.map_accuracy_pct == 100.0
+    assert robot.collisions == 0
+
+
+def test_lost_robot_stream_ends_the_mission_with_a_clear_reason():
+    from slam.robot_api import RobotStreamLost
+
+    gt = generate_maze(3, 3, seed=1)
+    robot = SimRobot(gt, (0, 0), Direction.N, noise=PERFECT_SIM)
+    real_yaw, calls = robot.imu_yaw, [0]
+
+    def dying_yaw():
+        calls[0] += 1
+        if calls[0] > 200:
+            raise RobotStreamLost("no chassis attitude data for 1.2 s")
+        return real_yaw()
+
+    robot.imu_yaw = dying_yaw
+    result = Explorer(robot, DEFAULT).run()
+    assert result.reason == "robot_stream_lost"

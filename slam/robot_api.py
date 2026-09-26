@@ -14,6 +14,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
 
+class RobotStreamLost(RuntimeError):
+    """The robot stopped sending sensor data; the mission cannot continue."""
+
+
 class RobotAPI(ABC):
     # ---- time ------------------------------------------------------------
     @abstractmethod

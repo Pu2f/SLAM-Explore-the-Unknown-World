@@ -308,3 +308,15 @@ def test_with_calibration_applies_measured_mounts(tmp_path):
     assert cfg.sensors.sharp_left.right_m == -0.17
     assert cfg.sensors.sharp_right.right_m == 0.19
     assert with_calibration(DEFAULT, str(tmp_path / "missing.json")) is DEFAULT
+
+
+def test_frozen_chassis_stream_raises():
+    from slam.robot_api import RobotStreamLost
+
+    robot, sdk, clock = make()
+    assert robot.imu_yaw() == 0.0
+    clock.t += DEFAULT.robot_io.lost_s + 0.5  # no new attitude / position since
+    with pytest.raises(RobotStreamLost):
+        robot.imu_yaw()
+    with pytest.raises(RobotStreamLost):
+        robot.odometry()

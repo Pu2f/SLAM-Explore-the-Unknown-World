@@ -152,7 +152,7 @@ class Exploration:
     # A blocked move adds this much WALL evidence to the edge.
     blocked_wall_weight: float = 2.0
     # Look again at directions that came out unsure.
-    rescan_unsure: int = 1
+    rescan_unsure: int = 2
     max_consecutive_failures: int = 5
 
     # Exit ("fake exit") detection. After entering a new cell: if no side has
@@ -232,6 +232,9 @@ class RobotIO:
     sensor_hz: int = 50  # 1, 5, 10, 20 or 50
     stream_timeout_s: float = 6.0
     stale_s: float = 0.3
+    # Chassis position / attitude older than this -> the robot stopped
+    # talking (Wi-Fi, battery): abort instead of steering on frozen data.
+    lost_s: float = 1.0
     # The SDK stops the chassis if no new speed command arrives in this time.
     drive_cmd_timeout_s: float = 0.3
 

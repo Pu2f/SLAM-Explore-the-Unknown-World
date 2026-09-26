@@ -26,7 +26,7 @@ from .logger import RunLogger
 from .maze_map import EdgeKey, EdgeState, MazeMap, edge_key
 from .motion import Navigator
 from .perception import Verdict, classify_range, edge_distance, look, ray_of
-from .robot_api import RobotAPI
+from .robot_api import RobotAPI, RobotStreamLost
 
 
 @dataclass
@@ -123,6 +123,8 @@ class Explorer:
                 if self._needs_scan(self.cell):
                     new_cell = self.scans.get(self.cell, 0) == 0
                     self.scan()
+                    while self._needs_scan(self.cell):  # sides still unknown: look again now
+                        self.scan()
                     if new_cell and self._looks_like_exit():
                         if not self._leave_outside():
                             reason = "exit_return_failed"
@@ -159,6 +161,9 @@ class Explorer:
                 self.stack.pop()
         except KeyboardInterrupt:
             reason = "interrupted"
+        except RobotStreamLost as exc:
+            reason = "robot_stream_lost"
+            self._event("ROBOT_STREAM_LOST", error=str(exc))
         finally:
             r.stop()
 
@@ -248,10 +253,15 @@ class Explorer:
             verdict = classify_range(
                 value, edge if edge is not None else math.inf, cfg.perception, none_means_open=True
             )
-            if verdict != Verdict.UNSURE:
+            # Backup only: the pointed, median-filtered ToF decides a side;
+            # the wide Sharp beam can catch a doorway's corner (real run
+            # 03:46: ToF open 1.59 m vs Sharp "wall" 0.13 m left it unknown).
+            used = verdict != Verdict.UNSURE and self.map.state(self.cell, d) == EdgeState.UNKNOWN
+            if used:
                 self.map.observe(self.cell, d, verdict == Verdict.WALL, cfg.evidence.sharp_weight)
             if self.log is not None:
-                self.log.sensor(r.now(), name + "_scan", self.cell, d.name, None, value, verdict.value)
+                self.log.sensor(r.now(), name + "_scan", self.cell, d.name, None, value,
+                                verdict.value if used else f"{verdict.value} (unused)")
 
         r.gimbal_moveto(0.0)
         # Now that the map knows these walls, use the same readings to localize.
@@ -271,15 +281,20 @@ class Explorer:
         for k in self.cfg.exploration.turn_preference:
             d = self.heading.turned(k)
             target = neighbor(self.cell, d)
-            if (
-                self.map.state(self.cell, d) == EdgeState.OPEN
-                and target not in self.map.visited
-                and target not in self.map.outside
-            ):
-                candidates.append((d in odd, d, target))
+            if target in self.map.visited or target in self.map.outside:
+                continue
+            state = self.map.state(self.cell, d)
+            if state == EdgeState.OPEN:
+                candidates.append((1 if d in odd else 0, d, target))
+            elif state == EdgeState.UNKNOWN:
+                # Still unknown after re-looking: drive in carefully as a last
+                # resort. A wall stops the move (front ToF) and is recorded;
+                # getting through proves it open. Nothing stays unexplored.
+                candidates.append((2, d, target))
         if not candidates:
             return None
-        # Stable: normal directions keep the turn preference, odd ones go last.
+        # Stable: normal directions keep the turn preference, odd ones go
+        # after them, unknown ones last.
         _, d, target = sorted(candidates, key=lambda c: c[0])[0]
         return d, target
 
@@ -288,7 +303,7 @@ class Explorer:
             for d in Direction:
                 n = neighbor(c, d)
                 if (
-                    self.map.state(c, d) == EdgeState.OPEN
+                    self.map.state(c, d) != EdgeState.WALL
                     and n not in self.map.visited
                     and n not in self.map.outside
                 ):

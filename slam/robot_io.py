@@ -25,7 +25,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .config import DEFAULT, Config
 from .geometry import wrap_deg
-from .robot_api import RobotAPI
+from .robot_api import RobotAPI, RobotStreamLost
 from .sharp import SharpCalibration
 
 GIMBAL_YAW_LIMIT_DEG = 250.0
@@ -190,11 +190,16 @@ class RealRobot(RobotAPI):
             x=float(forward_mps), y=float(right_mps), z=float(z), timeout=self.io.drive_cmd_timeout_s
         )
 
+    def _check_alive(self, t: Optional[float], what: str) -> None:
+        if t is not None and self._clock() - t > self.io.lost_s:
+            raise RobotStreamLost(f"no {what} data for {self._clock() - t:.1f} s")
+
     def odometry(self) -> Tuple[float, float]:
         with self._lock:
             pos, origin = self._pos, self._origin
         if pos is None:
             return (0.0, 0.0)
+        self._check_alive(pos[2], "chassis position")
         if origin is None:
             origin = (pos[0], pos[1], 0.0)
         # Power-on frame (forward, right) -> map frame (E, N) rotated by the
@@ -210,6 +215,7 @@ class RealRobot(RobotAPI):
             yaw, origin = self._yaw, self._origin
         if yaw is None:
             return 0.0
+        self._check_alive(yaw[1], "chassis attitude")
         return wrap_deg(yaw[0] - (origin[2] if origin else 0.0))
 
     # ---- RobotAPI: gimbal + ToF ---------------------------------------------------
