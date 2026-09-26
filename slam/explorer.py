@@ -43,6 +43,7 @@ class MissionResult:
     localization_mismatches: int = 0
     ekf_updates: int = 0
     ekf_rejects: int = 0
+    ir_ticks: Dict[str, int] = field(default_factory=dict)
     tremaux: Dict[str, int] = field(default_factory=dict)
 
     def summary(self, cell_size: float) -> dict:
@@ -64,6 +65,7 @@ class MissionResult:
             "localization_mismatches": self.localization_mismatches,
             "ekf_updates": self.ekf_updates,
             "ekf_rejects": self.ekf_rejects,
+            "ir_avoid_ticks": self.ir_ticks,
             "cell_path": [list(c) for c in self.path],
             "tremaux_marks": self.tremaux,
         }
@@ -174,6 +176,7 @@ class Explorer:
             localization_mismatches=self.mismatches,
             ekf_updates=self.nav.ekf_updates,
             ekf_rejects=self.nav.ekf_rejects,
+            ir_ticks=dict(self.nav.ir_ticks),
             tremaux={f"{k[0]},{k[1]},{k[2].name}": v for k, v in sorted(self.tremaux.items())},
         )
         if self.log is not None:

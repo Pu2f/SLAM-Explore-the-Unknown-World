@@ -142,3 +142,19 @@ def test_no_false_exit_in_open_closed_maze(seed):
     result = Explorer(robot, DEFAULT).run()
     assert result.reason == "complete"
     assert result.map.outside == set()
+
+
+def test_front_irs_seeing_side_walls_do_not_block_moves():
+    """Real run 2026-09-27 03:32: thick walls put the corridor sides inside
+    both 45 deg IRs; the robot aborted, marked open passages as walls and
+    mapped 6 of 20 cells."""
+    cfg = replace(DEFAULT, sensors=replace(DEFAULT.sensors, ir_range_m=0.35))  # IRs see side walls
+    gt = generate_maze(4, 5, seed=3, loops=1)
+    robot = SimRobot(gt, (0, 0), Direction.N, config=cfg, noise=DEFAULT.sim_noise, seed=3)
+    result = Explorer(robot, cfg).run()
+    m = evaluate(Alignment((0, 0), Direction.N).apply(result.map.to_wallmap()), gt)
+    assert result.reason == "complete"
+    assert result.blocked_moves == 0
+    assert m.map_accuracy_pct == 100.0
+    assert robot.collisions == 0
+    assert result.ir_ticks.get("both", 0) > 0  # the IRs really did fire

@@ -8,7 +8,7 @@ are already in the map. The controllers steer on the EKF pose.
 from __future__ import annotations
 
 import math
-from typing import NamedTuple, Optional, Tuple
+from typing import Dict, NamedTuple, Optional, Tuple
 
 from .config import Config
 from .geometry import Cell, Direction, Line, Pose, angle_diff, cell_center, edge_line, heading_vector
@@ -52,6 +52,7 @@ class Navigator:
         self.dt = 1.0 / cfg.motion.loop_hz
         self.ekf_updates = 0
         self.ekf_rejects = 0
+        self.ir_ticks: Dict[str, int] = {}  # control ticks spent avoiding, per IR side
 
     # ---- one control tick ------------------------------------------------------
     def tick(
@@ -130,6 +131,12 @@ class Navigator:
             )
         return accepted
 
+    def _ir_event(self, side: str, pose: Pose) -> None:
+        self.ir_ticks[side] = self.ir_ticks.get(side, 0) + 1
+        if self.log is not None:
+            self.log.sensor(self.robot.now(), f"ir_{side}", self.ekf.cell(self.cfg.geometry.cell_size_m),
+                            "", None, None, verdict="avoid")
+
     # ---- primitives --------------------------------------------------------------
     def turn_to(self, heading_deg: float) -> MoveResult:
         m = self.cfg.motion
@@ -182,18 +189,25 @@ class Navigator:
                 forward = remaining > 0
                 if forward and tof is not None and tof < m.emergency_front_m:
                     return MoveResult(False, "front_obstacle", progress(pose))
-                ir_left, ir_right = r.ir_front()
-                if forward and ir_left and ir_right:
-                    return MoveResult(False, "ir_blocked", progress(pose))
-
+                speed = _speed(remaining, m.k_along, m.min_mps, m.drive_mps)
                 strafe = _clamp(-m.k_lateral * lateral, -m.max_strafe_mps, m.max_strafe_mps)
-                if ir_left:
-                    strafe += m.ir_avoid_mps
-                if ir_right:
-                    strafe -= m.ir_avoid_mps
+                # The 45 deg front IRs cover the corners the ToF / Sharps
+                # cannot see. They never stop the move (the front ToF does
+                # that): one side seeing something -> side-step away from it;
+                # both -> a narrow spot, carry on slowly.
+                ir_left, ir_right = r.ir_front()
+                if ir_left != ir_right:
+                    away = 1.0 if ir_left else -1.0  # +1 = step right
+                    # Side-step, but not more than ir_max_shift_m off the
+                    # centre line: an IR that sees far would push forever.
+                    if away * lateral < m.ir_max_shift_m:
+                        strafe = away * m.ir_avoid_mps
+                    self._ir_event("left" if ir_left else "right", pose)
+                elif ir_left and ir_right:
+                    speed = math.copysign(min(abs(speed), m.ir_both_mps), speed)
+                    self._ir_event("both", pose)
                 herr = angle_diff(direction.heading_deg, pose.heading_deg)
                 turn = _clamp(m.k_heading * herr, -m.max_heading_hold_dps, m.max_heading_hold_dps)
-                speed = _speed(remaining, m.k_along, m.min_mps, m.drive_mps)
                 r.drive_speed(speed, strafe, turn)
                 r.sleep(self.dt)
         finally:

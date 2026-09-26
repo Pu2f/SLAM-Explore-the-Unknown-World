@@ -134,8 +134,12 @@ class Motion:
     drive_timeout_s: float = 10.0
     # ToF straight ahead closer than this while driving -> emergency stop.
     emergency_front_m: float = 0.10
-    # One front IR hit -> strafe away at this speed.
-    ir_avoid_mps: float = 0.05
+    # Front IRs (45 deg): one side hit -> side-step away at this speed
+    # (instead of the centring controller); both -> drive no faster than
+    # ir_both_mps. They never abort a move.
+    ir_avoid_mps: float = 0.06
+    ir_max_shift_m: float = 0.05
+    ir_both_mps: float = 0.12
 
 
 @dataclass(frozen=True)
