@@ -66,7 +66,23 @@ class RealRobot(RobotAPI):
         from robomaster import robot as rm_robot  # imported here so tests don't need the SDK
 
         ep = rm_robot.Robot()
-        ep.initialize(conn_type=cfg.robot_io.conn_type)
+        try:
+            ok = ep.initialize(conn_type=cfg.robot_io.conn_type)
+        except Exception as exc:  # SDK 0.1.1.68 raises TypeError from `raise print(...)`
+            ok = False
+            cause: Optional[BaseException] = exc
+        else:
+            cause = None
+        if ok is False:
+            try:
+                ep.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"cannot connect to the robot (conn_type={cfg.robot_io.conn_type!r}). "
+                "For 'ap' join the robot's WiFi first; for 'sta' the robot and this computer "
+                "must be on the same network; for 'rndis' use the USB cable."
+            ) from cause
         r = cls(ep, cfg)
         try:
             r.start()

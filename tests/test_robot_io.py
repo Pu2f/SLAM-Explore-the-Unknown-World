@@ -253,3 +253,30 @@ def test_default_wiring_matches_the_robot():
     io = DEFAULT.robot_io
     assert (io.sharp_left.index, io.sharp_right.index) == (2, 4)  # A2P1, A3P1
     assert (io.ir_front_left.index, io.ir_front_right.index) == (0, 6)  # A1P1, A4P1
+
+
+@pytest.mark.parametrize("failure", ["raises", "returns_false"])
+def test_connect_failure_gives_a_clear_message(monkeypatch, failure):
+    import sys
+    import types
+
+    closed = []
+
+    class Robot:
+        def initialize(self, conn_type):
+            if failure == "raises":
+                raise TypeError("exceptions must derive from BaseException")
+            return False
+
+        def close(self):
+            closed.append(True)
+
+    pkg = types.ModuleType("robomaster")
+    mod = types.ModuleType("robomaster.robot")
+    mod.Robot = Robot
+    pkg.robot = mod
+    monkeypatch.setitem(sys.modules, "robomaster", pkg)
+    monkeypatch.setitem(sys.modules, "robomaster.robot", mod)
+    with pytest.raises(RuntimeError, match="cannot connect to the robot"):
+        RealRobot.connect(io_cfg())
+    assert closed == [True]
