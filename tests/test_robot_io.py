@@ -221,3 +221,29 @@ def test_tools_import_without_the_sdk(module):
     with pytest.raises(SystemExit) as exc:
         mod.main(["--help"])
     assert exc.value.code == 0
+
+
+def test_check_robot_adapter_finds_the_wired_ports(capsys, monkeypatch):
+    from tools import check_robot
+
+    robot, sdk, _ = make()
+    frames = iter(range(1000))
+
+    def fake_values():
+        k = next(frames)
+        io = [1] * 12
+        adc = [510] * 12
+        adc[5] = 200 + 150 * (k % 3)  # adapter 3 port 2: a Sharp being waved at
+        io[6] = k % 2  # adapter 4 port 1: an IR toggling
+        return io, adc
+
+    monkeypatch.setattr(robot, "adapter_values", fake_values)
+    monkeypatch.setattr(check_robot.time, "sleep", lambda s: None)
+    t = iter(range(1000))
+    monkeypatch.setattr(check_robot.time, "monotonic", lambda: next(t) * 0.1)
+    check_robot.adapter(robot, seconds=1.0)
+    out = capsys.readouterr().out
+    lines = {line.split()[0]: line for line in out.splitlines() if line[:1] == "A" and line[2:3] == "P"}
+    assert "ADC CHANGES" in lines["A3P2"]
+    assert "IO TOGGLES" in lines["A4P1"]
+    assert "ADC CHANGES" not in lines["A1P2"] and "config: sharp_right" in lines["A1P2"]

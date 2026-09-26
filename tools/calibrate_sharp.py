@@ -22,6 +22,9 @@ from slam.robot_io import RealRobot
 from slam.sharp import SharpCalibration
 
 DEFAULT_DISTANCES = (0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80)
+# A Sharp changes by hundreds of ADC counts over 0.1-0.8 m; less than this
+# across the whole run means the port is not connected to a working sensor.
+FLAT_ADC_SPAN = 40
 
 
 def read_adc(robot: RealRobot, side: str, samples: int) -> Optional[float]:
@@ -65,6 +68,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 continue
             points.append((adc, d))
 
+        adcs = [a for a, _ in points]
+        if len(adcs) >= 2 and max(adcs) - min(adcs) < FLAT_ADC_SPAN:
+            print(f"The ADC hardly changed ({min(adcs):.0f}..{max(adcs):.0f}) although the wall moved:")
+            print("this is not reading a Sharp. Check that the sensor is powered and that")
+            print(f"RobotIO.sharp_{args.side} in slam/config.py names the port it is wired to")
+            print("(find it with: python -m tools.check_robot adapter).")
+            return 1
         try:
             cal = SharpCalibration(points, source=path)
         except ValueError as exc:

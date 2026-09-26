@@ -199,14 +199,16 @@ python3 -m venv .venv                      # Python 3.8.10
 
 1. **ต่อสาย** Sharp และ IR เข้า sensor adapter แล้วตั้ง `RobotIO.sharp_*` / `ir_front_*` ใน `slam/config.py`
    ให้ตรง (adapter id ที่ตั้งบนบอร์ด + port 1/2)
-2. `python -m tools.check_robot streams` — ทุก stream ต้อง `True` และค่าดูสมเหตุสมผล
+2. `python -m tools.check_robot adapter` — โบกมือหน้า sensor ทีละตัว โปรแกรมบอกว่า port ไหนค่าเปลี่ยน
+   → ใส่ port นั้นใน config (ถ้า ADC ค้างแถว ~510 ไม่ว่าวางกำแพงห่างเท่าไร = port ผิดหรือ sensor ไม่มีไฟ)
+3. `python -m tools.check_robot streams` — ทุก stream ต้อง `True` และค่าดูสมเหตุสมผล
    (เอามือบัง sensor แต่ละตัวแล้วดูค่าเปลี่ยน, ToF ต้องเป็นตัวที่ `tof_index` ชี้)
-3. `python -m tools.check_robot signs` — ขยับหุ่นเล็กน้อยเพื่อเช็คเครื่องหมาย ถ้าไม่ผ่านให้กลับ flag ตามที่พิมพ์บอก แล้วรันใหม่
-4. **วัดตำแหน่งติดตั้ง** ใส่ `Sensors` (offset/มุมของ Sharp, IR, จุดหมุน gimbal) และ `RobotIO.tof_pivot_offset_m`
-5. `python -m tools.calibrate_sharp --side left` และ `--side right` → ได้ `calibration/sharp_*.json`
+4. `python -m tools.check_robot signs` — ขยับหุ่นเล็กน้อยเพื่อเช็คเครื่องหมาย ถ้าไม่ผ่านให้กลับ flag ตามที่พิมพ์บอก แล้วรันใหม่
+5. **วัดตำแหน่งติดตั้ง** ใส่ `Sensors` (offset/มุมของ Sharp, IR, จุดหมุน gimbal) และ `RobotIO.tof_pivot_offset_m`
+6. `python -m tools.calibrate_sharp --side left` และ `--side right` → ได้ `calibration/sharp_*.json`
    (commit ไฟล์นี้ด้วย) เช็คผลด้วย `--live`
-6. ซ้อมในเขาวงกตเล็ก: `python -m tools.run_robot --gt ground_truth/<สนามซ้อม>.txt`
-7. **วันส่ง:** วาด GT พร้อมลูกศรที่ช่องเริ่ม → วางหุ่นกลางช่อง ขนานกำแพง → `python -m tools.run_robot --gt ...`
+7. ซ้อมในเขาวงกตเล็ก: `python -m tools.run_robot --gt ground_truth/<สนามซ้อม>.txt`
+8. **วันส่ง:** วาด GT พร้อมลูกศรที่ช่องเริ่ม → วางหุ่นกลางช่อง ขนานกำแพง → `python -m tools.run_robot --gt ...`
 
 ข้อสังเกตจาก repo เก่า (หุ่นตัวเดียวกัน): gimbal มักหยุดขาด ±180° ไป 3–4° → ตอนสแกนจึงใช้มุม**จริง**จาก feedback
 ไม่ใช่มุมที่สั่ง

@@ -229,7 +229,11 @@ class RealRobot(RobotAPI):
         return d if s.tof_min_m <= d <= s.tof_max_m else None
 
     # ---- RobotAPI: side / front IR ---------------------------------------------------
-    def _adapter_values(self) -> Optional[Tuple[List[int], List[int]]]:
+    def adapter_values(self) -> Optional[Tuple[List[int], List[int]]]:
+        """Latest (io[12], adc[12]) for all 6 adapters x 2 ports, None if stale.
+
+        Index = (adapter_id - 1) * 2 + (port - 1), see config.AdapterPort.
+        """
         with self._lock:
             a = self._adapter
         if a is None or not self._fresh(a[2]):
@@ -238,7 +242,7 @@ class RealRobot(RobotAPI):
 
     def sharp_adc(self) -> Tuple[Optional[int], Optional[int]]:
         """Raw ADC values (left, right), for calibration."""
-        v = self._adapter_values()
+        v = self.adapter_values()
         if v is None:
             return None, None
         _, adc = v
@@ -254,7 +258,7 @@ class RealRobot(RobotAPI):
         return out[0], out[1]
 
     def ir_front(self) -> Tuple[bool, bool]:
-        v = self._adapter_values()
+        v = self.adapter_values()
         if v is None:
             return False, False
         io, _ = v

@@ -1,6 +1,7 @@
 """Hardware bring-up checks. Run these before the first mission.
 
     python -m tools.check_robot streams     # live values of every sensor
+    python -m tools.check_robot adapter     # every adapter port: find where a sensor is wired
     python -m tools.check_robot signs       # small moves; checks every sign in config
 
 `signs` moves the robot a little (about 20 cm and 90 deg): give it room.
@@ -40,6 +41,59 @@ def streams(robot: RealRobot, seconds: float) -> None:
             f"IR L={int(il)} R={int(ir)}"
         )
         time.sleep(0.25)
+
+
+def adapter(robot: RealRobot, seconds: float) -> None:
+    """Show all 12 adapter inputs and report which ones actually change.
+
+    Move a hand / wall in front of one sensor at a time while this runs.
+    """
+    labels = [f"A{i // 2 + 1}P{i % 2 + 1}" for i in range(12)]
+    print("Move something in front of ONE sensor at a time (Ctrl+C to stop early).")
+    print("adc: " + " ".join(f"{name:>5}" for name in labels))
+    adc_lo, adc_hi = [None] * 12, [None] * 12
+    io_seen = [set() for _ in range(12)]
+    t_end = time.monotonic() + seconds
+    try:
+        while time.monotonic() < t_end:
+            v = robot.adapter_values()
+            if v is None:
+                print("adapter stream stale / missing")
+            else:
+                io, adc = v
+                for i in range(12):
+                    adc_lo[i] = adc[i] if adc_lo[i] is None else min(adc_lo[i], adc[i])
+                    adc_hi[i] = adc[i] if adc_hi[i] is None else max(adc_hi[i], adc[i])
+                    io_seen[i].add(io[i])
+                print("adc: " + " ".join(f"{a:>5}" for a in adc) + "   io: " + "".join(str(b) for b in io))
+            time.sleep(0.3)
+    except KeyboardInterrupt:
+        pass
+
+    print()
+    print("port    adc min..max   io levels seen   verdict")
+    cfg = DEFAULT.robot_io
+    wired = {
+        cfg.sharp_left.index: "sharp_left",
+        cfg.sharp_right.index: "sharp_right",
+        cfg.ir_front_left.index: "ir_front_left",
+        cfg.ir_front_right.index: "ir_front_right",
+    }
+    for i, name in enumerate(labels):
+        if adc_lo[i] is None:
+            continue
+        span = adc_hi[i] - adc_lo[i]
+        verdict = []
+        if span >= 100:
+            verdict.append("ADC CHANGES -> analog sensor here (Sharp?)")
+        if len(io_seen[i]) > 1:
+            verdict.append("IO TOGGLES -> digital sensor here (IR?)")
+        config_name = wired.get(i)
+        print(
+            f"{name:5s}  {adc_lo[i]:>5}..{adc_hi[i]:<5}   {sorted(io_seen[i])!s:15s}  "
+            f"{'; '.join(verdict) or '-':45s} {'<- config: ' + config_name if config_name else ''}"
+        )
+    print("Set RobotIO sharp_* / ir_front_* in slam/config.py to the ports that changed.")
 
 
 def pulse(robot: RealRobot, fwd: float, right: float, turn: float, seconds: float) -> None:
@@ -133,14 +187,17 @@ def signs(robot: RealRobot) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("check", choices=["streams", "signs"])
-    p.add_argument("--seconds", type=float, default=30.0, help="how long `streams` prints")
+    p.add_argument("check", choices=["streams", "adapter", "signs"])
+    p.add_argument("--seconds", type=float, default=30.0, help="how long `streams` / `adapter` run")
     args = p.parse_args(argv)
 
     robot = RealRobot.connect(DEFAULT)
     try:
         if args.check == "streams":
             streams(robot, args.seconds)
+            return 0
+        if args.check == "adapter":
+            adapter(robot, args.seconds)
             return 0
         return signs(robot)
     except KeyboardInterrupt:
