@@ -1,0 +1,7 @@
+Example ground truth (DESIGN.md section 9). The arrow marks the start cell
+and the direction the robot faces: ^ = up, > = right, v = down, < = left.
++---+---+---+
+|       |   |
++   +---+   +
+| ^         |
++---+---+---+
