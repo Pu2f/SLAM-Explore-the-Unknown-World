@@ -214,11 +214,12 @@ class RobotIO:
     gimbal_timeout_s: float = 4.0
     gimbal_settle_s: float = 0.10
 
-    # Sensor adapter wiring.  MEASURE (set to how the robot is wired)
-    sharp_left: AdapterPort = AdapterPort(1, 1)
-    sharp_right: AdapterPort = AdapterPort(1, 2)
-    ir_front_left: AdapterPort = AdapterPort(2, 1)
-    ir_front_right: AdapterPort = AdapterPort(2, 2)
+    # Sensor adapter wiring (adapter id, port) as wired on the robot.
+    # Find / re-check with `python -m tools.check_robot adapter`.
+    sharp_left: AdapterPort = AdapterPort(2, 1)
+    sharp_right: AdapterPort = AdapterPort(3, 1)
+    ir_front_left: AdapterPort = AdapterPort(1, 1)
+    ir_front_right: AdapterPort = AdapterPort(4, 1)
     # Most IR obstacle modules pull the output LOW when they see something.
     ir_active_low: bool = True
     # ADC -> metres tables, written by `python -m tools.calibrate_sharp`.

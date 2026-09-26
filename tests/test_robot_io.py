@@ -234,7 +234,7 @@ def test_check_robot_adapter_finds_the_wired_ports(capsys, monkeypatch):
         io = [1] * 12
         adc = [510] * 12
         adc[5] = 200 + 150 * (k % 3)  # adapter 3 port 2: a Sharp being waved at
-        io[6] = k % 2  # adapter 4 port 1: an IR toggling
+        io[7] = k % 2  # adapter 4 port 2: an IR toggling
         return io, adc
 
     monkeypatch.setattr(robot, "adapter_values", fake_values)
@@ -245,5 +245,11 @@ def test_check_robot_adapter_finds_the_wired_ports(capsys, monkeypatch):
     out = capsys.readouterr().out
     lines = {line.split()[0]: line for line in out.splitlines() if line[:1] == "A" and line[2:3] == "P"}
     assert "ADC CHANGES" in lines["A3P2"]
-    assert "IO TOGGLES" in lines["A4P1"]
-    assert "ADC CHANGES" not in lines["A1P2"] and "config: sharp_right" in lines["A1P2"]
+    assert "IO TOGGLES" in lines["A4P2"]
+    assert "ADC CHANGES" not in lines["A3P1"] and "config: sharp_right" in lines["A3P1"]
+
+
+def test_default_wiring_matches_the_robot():
+    io = DEFAULT.robot_io
+    assert (io.sharp_left.index, io.sharp_right.index) == (2, 4)  # A2P1, A3P1
+    assert (io.ir_front_left.index, io.ir_front_right.index) == (0, 6)  # A1P1, A4P1
