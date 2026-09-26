@@ -1,0 +1,24 @@
+{
+  "points": [
+    {
+      "adc": 125.0,
+      "distance_m": 0.3
+    },
+    {
+      "adc": 160.0,
+      "distance_m": 0.25
+    },
+    {
+      "adc": 182.0,
+      "distance_m": 0.2
+    },
+    {
+      "adc": 242.0,
+      "distance_m": 0.15
+    },
+    {
+      "adc": 349.0,
+      "distance_m": 0.1
+    }
+  ]
+}
