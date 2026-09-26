@@ -171,6 +171,62 @@ PERFECT_SIM = SimNoise(
 
 
 @dataclass(frozen=True)
+class AdapterPort:
+    """A sensor-adapter input: adapter id 1..6 (set on the board), port 1..2."""
+
+    adapter_id: int
+    port: int
+
+    @property
+    def index(self) -> int:
+        """Position in the 12-value lists from sensor_adaptor.sub_adapter()."""
+        return (self.adapter_id - 1) * 2 + (self.port - 1)
+
+
+@dataclass(frozen=True)
+class RobotIO:
+    """RoboMaster EP specifics used only by slam/robot_io.py.
+
+    Signs: the SDK body frame is x forward, y right, and a positive z / yaw
+    is assumed to be clockwise. Verify with `python -m tools.check_robot`
+    and flip a flag here if a check fails.
+    """
+
+    conn_type: str = "ap"
+    sensor_hz: int = 50  # 1, 5, 10, 20 or 50
+    stream_timeout_s: float = 6.0
+    stale_s: float = 0.3
+    # The SDK stops the chassis if no new speed command arrives in this time.
+    drive_cmd_timeout_s: float = 0.3
+
+    sdk_turn_clockwise_positive: bool = True  # chassis drive_speed z
+    sdk_yaw_clockwise_positive: bool = True  # chassis sub_attitude yaw
+    sdk_gimbal_clockwise_positive: bool = True  # gimbal moveto / sub_angle yaw
+
+    # ToF: which of the 4 values from sensor.sub_distance(), and the distance
+    # from the gimbal pivot to the ToF emitter (added to every reading so the
+    # rest of the code measures from the pivot).  MEASURE
+    tof_index: int = 0
+    tof_pivot_offset_m: float = 0.0
+
+    gimbal_pitch_deg: float = 0.0
+    gimbal_speed_dps: float = 180.0
+    gimbal_timeout_s: float = 4.0
+    gimbal_settle_s: float = 0.10
+
+    # Sensor adapter wiring.  MEASURE (set to how the robot is wired)
+    sharp_left: AdapterPort = AdapterPort(1, 1)
+    sharp_right: AdapterPort = AdapterPort(1, 2)
+    ir_front_left: AdapterPort = AdapterPort(2, 1)
+    ir_front_right: AdapterPort = AdapterPort(2, 2)
+    # Most IR obstacle modules pull the output LOW when they see something.
+    ir_active_low: bool = True
+    # ADC -> metres tables, written by `python -m tools.calibrate_sharp`.
+    sharp_left_calibration: str = "calibration/sharp_left.json"
+    sharp_right_calibration: str = "calibration/sharp_right.json"
+
+
+@dataclass(frozen=True)
 class Config:
     geometry: Geometry = field(default_factory=Geometry)
     sensors: Sensors = field(default_factory=Sensors)
@@ -180,6 +236,7 @@ class Config:
     motion: Motion = field(default_factory=Motion)
     exploration: Exploration = field(default_factory=Exploration)
     limits: Limits = field(default_factory=Limits)
+    robot_io: RobotIO = field(default_factory=RobotIO)
     sim_noise: SimNoise = field(default_factory=SimNoise)
     # Simulator physics step. Commands are integrated in steps of this size.
     sim_dt_s: float = 0.01

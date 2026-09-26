@@ -192,8 +192,10 @@ class Explorer:
             d = self.heading.turned(k)
             if not first and self.map.state(self.cell, d) != EdgeState.UNKNOWN:
                 continue
-            gimbal = angle_diff(d.heading_deg, pose.heading_deg)
-            dist = look(r, gimbal, cfg.perception)
+            dist = look(r, angle_diff(d.heading_deg, pose.heading_deg), cfg.perception)
+            # Use where the gimbal really is: a real one can stop a few
+            # degrees short of the command (notably near +/-180).
+            gimbal = r.gimbal_yaw()
             edge = edge_distance(ray_of(pose, cfg.sensors.tof, gimbal), self.cell, d, cell_size)
             verdict = classify_range(dist, edge if edge is not None else math.inf, cfg.perception)
             if verdict != Verdict.UNSURE:

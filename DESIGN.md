@@ -119,7 +119,8 @@ slam/
   robot_api.py   # interface กลางที่ทั้ง SimRobot และ RealRobot ต้องทำตาม
   maze_map.py    # WallMap (แผนที่ fix) + MazeMap (แผนที่ของหุ่น มีคะแนนหลักฐาน) + ASCII/JSON
   sim.py         # สุ่มเขาวงกต + SimRobot (ฟิสิกส์ + noise + sensor)
-  robot_io.py    # (ยังไม่ทำ) RealRobot คุยกับ RoboMaster SDK
+  robot_io.py    # RealRobot: RobotAPI บน RoboMaster SDK (ที่เดียวที่รู้แกน/เครื่องหมายของ SDK)
+  sharp.py       # ตาราง calibrate ADC → ระยะของ Sharp
   perception.py  # ค่าดิบ → WALL/OPEN/UNSURE + ผูกค่าที่อ่านได้กับกำแพงในแผนที่
   localizer.py   # EKF (x, y, θ)
   motion.py      # Navigator: เลี้ยว / วิ่ง 1 ช่อง + EKF ทุก tick
@@ -128,6 +129,9 @@ slam/
 tools/
   evaluate.py    # Map Accuracy / Coverage เทียบ GT
   run_sim.py     # รันภารกิจเต็มใน sim แล้วให้คะแนนทันที
+  run_robot.py   # รันภารกิจบนหุ่นจริง (+ ให้คะแนนถ้าใส่ --gt)
+  check_robot.py # ตรวจ stream ของ sensor และเครื่องหมายทุกแกนบนหุ่นจริง
+  calibrate_sharp.py  # วัด ADC ที่ระยะต่างๆ → calibration/sharp_*.json
 tests/           # pytest — ทุกอย่างรันบน laptop ได้โดยไม่ต้องมีหุ่น
 ```
 
@@ -178,11 +182,28 @@ python3 -m venv .venv                      # Python 3.8.10
 
 ความลื่นของล้อแบบคงที่ที่รับได้: **±10–12%** (8/8 ถึง 7/8 seed) ที่ ±15% เหลือ 5/8
 
-## 11. สถานะ
+## 11. เตรียมหุ่นจริง (ทำตามลำดับ)
+
+1. **ต่อสาย** Sharp และ IR เข้า sensor adapter แล้วตั้ง `RobotIO.sharp_*` / `ir_front_*` ใน `slam/config.py`
+   ให้ตรง (adapter id ที่ตั้งบนบอร์ด + port 1/2)
+2. `python -m tools.check_robot streams` — ทุก stream ต้อง `True` และค่าดูสมเหตุสมผล
+   (เอามือบัง sensor แต่ละตัวแล้วดูค่าเปลี่ยน, ToF ต้องเป็นตัวที่ `tof_index` ชี้)
+3. `python -m tools.check_robot signs` — ขยับหุ่นเล็กน้อยเพื่อเช็คเครื่องหมาย ถ้าไม่ผ่านให้กลับ flag ตามที่พิมพ์บอก แล้วรันใหม่
+4. **วัดตำแหน่งติดตั้ง** ใส่ `Sensors` (offset/มุมของ Sharp, IR, จุดหมุน gimbal) และ `RobotIO.tof_pivot_offset_m`
+5. `python -m tools.calibrate_sharp --side left` และ `--side right` → ได้ `calibration/sharp_*.json`
+   (commit ไฟล์นี้ด้วย) เช็คผลด้วย `--live`
+6. ซ้อมในเขาวงกตเล็ก: `python -m tools.run_robot --gt ground_truth/<สนามซ้อม>.txt`
+7. **วันส่ง:** วาด GT พร้อมลูกศรที่ช่องเริ่ม → วางหุ่นกลางช่อง ขนานกำแพง → `python -m tools.run_robot --gt ...`
+
+ข้อสังเกตจาก repo เก่า (หุ่นตัวเดียวกัน): gimbal มักหยุดขาด ±180° ไป 3–4° → ตอนสแกนจึงใช้มุม**จริง**จาก feedback
+ไม่ใช่มุมที่สั่ง
+
+## 12. สถานะ
 
 | ส่วน | สถานะ |
 |---|---|
 | DESIGN.md, config, geometry, robot_api, maze_map, sim, evaluate + tests | ✅ |
 | perception, localizer (EKF), motion, explorer, logger, run_sim + tests | ✅ |
-| robot_io (RealRobot) + calibrate Sharp | ⬜ |
-| plot (แผนที่/เส้นทาง PNG), ทดสอบบนหุ่นจริง | ⬜ |
+| robot_io (RealRobot), check_robot, calibrate_sharp, run_robot + tests (fake SDK) | ✅ |
+| ทดสอบบนหุ่นจริง: check → วัด mount → calibrate → ซ้อม | ⬜ |
+| plot (แผนที่/เส้นทาง PNG) | ⬜ |
