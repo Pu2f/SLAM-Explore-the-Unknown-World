@@ -73,13 +73,22 @@
 ## 5. Localization — EKF (x, y, θ)
 
 - **State:** `[x, y, θ]` ใน map frame + covariance 3×3
-- **Predict:** ใช้ส่วนต่างของ odometry + IMU yaw ในแต่ละรอบ (process noise ∝ ระยะที่วิ่ง/มุมที่หมุน)
+- **Predict:** ใช้ส่วนต่างของ odometry + IMU yaw ในแต่ละรอบ
+  - process noise เป็นแบบ **random walk**: *variance* ∝ ระยะที่วิ่ง / มุมที่หมุน / เวลา
+    (ไม่ใช่ std ∝ ระยะต่อรอบ — แบบนั้นยิ่งรอบถี่ filter ยิ่งมั่นใจเกินจริง แล้ว gate จะปัดค่าที่ถูกทิ้งหมดจน filter หลง
+    เจอจริงใน sim และมี regression test แล้ว)
 - **Measurement (ทุกตัวคือ "ระยะถึงกำแพงที่รู้ตำแหน่ง")** — กำแพงอยู่ได้เฉพาะบนเส้น `±0.3 + k·0.6` เท่านั้น
   จึงคาดระยะที่ควรอ่านได้จาก state + แผนที่ แล้วใช้ส่วนต่างแก้ state
   - ToF 4 ทิศตอนหยุดกลางช่อง → แก้ x, y (และ θ อ่อนๆ)
   - Sharp ซ้าย/ขวาระหว่างวิ่ง → แก้ lateral และ θ (อัตราเปลี่ยนของระยะ)
   - ToF หน้าขณะเข้าใกล้กำแพงหน้า → แก้ระยะตามแนววิ่ง
-- **Gate:** innovation เกิน (Mahalanobis) threshold → ทิ้ง (เช่น อ่านทะลุช่องประตู)
+- **Gate 2 ชั้น:**
+  - Mahalanobis > 3σ → ทิ้ง (เช่น แสงลอดช่องทางเปิดไปเจอกำแพงไกล)
+  - |innovation| > **0.15 ม. (¼ ช่อง)** → ทิ้งเสมอ เพราะกำแพงซ้ำกันทุก 0.6 ม. ถ้าต่างมากกว่านี้อาจเป็นกำแพงของ*ช่องข้างเคียง*
+    (เคยลองขยาย covariance เมื่อถูกปัดทิ้งติดกันหลายครั้ง ผลคือ EKF กระโดดข้ามช่อง จึงเลิกใช้)
+- **กำแพงไกลของช่องใหม่ (tentative):** ขณะวิ่งเข้าช่องที่ยังไม่เคยสแกน กำแพงข้างหน้ายังเป็น `UNKNOWN`
+  จึงลองใช้ ToF หน้ากับ "เส้นขอบไกลของช่องเป้าหมาย" ไปก่อน ถ้าไม่มีกำแพงจริง gate จะปัดทิ้งเอง
+  → แก้ระยะตามแนววิ่งได้ก่อนถึงช่อง ไม่งั้นทางเดินยาวๆ ที่ล้อลื่นจะวิ่งเลยเป้า
 - **IR digital:** ไม่เข้า EKF — ใช้เป็น event (เจอมุม/เสา) และกันชน
 - **Logical cell:** `(round(x/0.6), round(y/0.6))` + ตรวจว่าตรงกับช่องที่ตั้งใจไป
 - **Heading lock:** มุมเป้าหมายตอนเลี้ยวเป็นค่าตายตัว `0/90/180/270` (ไม่ใช่ "บวกเพิ่ม 90 จากตอนนี้")
@@ -88,7 +97,9 @@
 
 - ที่ช่องใหม่: หยุด → ToF 4 ทิศ → อัปเดตแผนที่ → เลือกทางเปิดที่นำไปช่องที่**ยังไม่เคยไป**
 - ไม่มีทางใหม่ → **ย้อนกลับ** ตาม stack ของ DFS (Trémaux mark กันวนซ้ำเมื่อเขาวงกตมี loop)
-- **จบ** เมื่อ stack ว่าง (กลับถึงจุดเริ่มแล้วไม่มีทางใหม่)
+- **จบ** เมื่อไม่มีช่องที่เคยไปช่องไหนมีทาง `OPEN` ไปยังช่องที่ยังไม่เคยไป → ไม่ต้องย้อนกลับจุดเริ่ม
+- **วิ่งไม่ผ่าน:** ถ้าหยุดก่อนครึ่งช่อง → นับเป็นหลักฐานว่ามีกำแพง แล้วถอยกลับกลางช่อง
+  ถ้าหยุด*หลัง*ครึ่งช่อง → ตัวหุ่นข้ามขอบไปแล้ว ขอบนั้นต้องเปิด → ถือว่าถึงช่องเป้าหมาย (สแกนต่อไปจะแก้ตำแหน่งเอง)
 - **Safety cap:** จำนวนช่อง, ความกว้างแผนที่, เวลาภารกิจ — ถ้าชนให้หยุดอย่างปลอดภัยและบันทึกเหตุผล
 
 ## 7. Motion control (state machine)
@@ -109,12 +120,14 @@ slam/
   maze_map.py    # WallMap (แผนที่ fix) + MazeMap (แผนที่ของหุ่น มีคะแนนหลักฐาน) + ASCII/JSON
   sim.py         # สุ่มเขาวงกต + SimRobot (ฟิสิกส์ + noise + sensor)
   robot_io.py    # (ยังไม่ทำ) RealRobot คุยกับ RoboMaster SDK
-  perception.py  # (ยังไม่ทำ) ค่าดิบ → WALL/OPEN
-  localizer.py   # (ยังไม่ทำ) EKF
-  explorer.py    # (ยังไม่ทำ) DFS/Trémaux mission loop
-  logger.py      # (ยังไม่ทำ) event log (JSONL) + CSV
+  perception.py  # ค่าดิบ → WALL/OPEN/UNSURE + ผูกค่าที่อ่านได้กับกำแพงในแผนที่
+  localizer.py   # EKF (x, y, θ)
+  motion.py      # Navigator: เลี้ยว / วิ่ง 1 ช่อง + EKF ทุก tick
+  explorer.py    # DFS/Trémaux mission loop
+  logger.py      # Exploration Log (CSV) + trajectory + sensors + map + summary
 tools/
   evaluate.py    # Map Accuracy / Coverage เทียบ GT
+  run_sim.py     # รันภารกิจเต็มใน sim แล้วให้คะแนนทันที
 tests/           # pytest — ทุกอย่างรันบน laptop ได้โดยไม่ต้องมีหุ่น
 ```
 
@@ -148,14 +161,28 @@ Map Accuracy = 3/6 = 50%, Coverage = 5/6 = 83.3%, Wall accuracy = 15/17 = 88.2%
 python3 -m venv .venv                      # Python 3.8.10
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest                 # test ทั้งหมด ไม่ต้องมีหุ่น
+.venv/bin/python -m tools.run_sim --width 4 --height 5 --loops 2 --seed 1   # ภารกิจเต็มใน sim
 .venv/bin/python -m tools.evaluate --gt ground_truth/example_3x2.txt --map <map.json|map.txt>
 ```
+
+ผลลัพธ์ของแต่ละ run อยู่ที่ `runs/<ชื่อ run>/`: `exploration_log.csv`, `trajectory.csv`, `sensors.csv`,
+`map.json`, `map.txt`, `summary.json` (+ `ground_truth.txt` เมื่อรันใน sim)
+
+### ผลใน sim (เขาวงกต 4×5 สุ่ม, จุดเริ่ม/ทิศสุ่ม, 10 seed ต่อระดับ)
+
+| Noise | แผนที่ 100% | error ตำแหน่ง EKF สูงสุด | ชน |
+|---|---|---|---|
+| default (ล้อลื่น ~2%, drift 0.02°/s) | 10/10 | 4.8 ซม. | 0 |
+| 2× | 10/10 | 9.4 ซม. | 0 |
+| 3× (ล้อลื่นได้ถึง ~20%) | 9/10 | — | ตัวที่พังเพราะลื่น 20% |
+
+ความลื่นของล้อแบบคงที่ที่รับได้: **±10–12%** (8/8 ถึง 7/8 seed) ที่ ±15% เหลือ 5/8
 
 ## 11. สถานะ
 
 | ส่วน | สถานะ |
 |---|---|
 | DESIGN.md, config, geometry, robot_api, maze_map, sim, evaluate + tests | ✅ |
-| perception, localizer (EKF), explorer, logger | ⬜ |
+| perception, localizer (EKF), motion, explorer, logger, run_sim + tests | ✅ |
 | robot_io (RealRobot) + calibrate Sharp | ⬜ |
 | plot (แผนที่/เส้นทาง PNG), ทดสอบบนหุ่นจริง | ⬜ |

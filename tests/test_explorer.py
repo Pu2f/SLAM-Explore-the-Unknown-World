@@ -1,0 +1,99 @@
+"""End-to-end missions in the simulator."""
+
+import json
+import random
+from dataclasses import replace
+
+import pytest
+
+from slam.config import DEFAULT, PERFECT_SIM
+from slam.explorer import Explorer
+from slam.geometry import Direction
+from slam.logger import RunLogger
+from slam.maze_map import WallMap
+from slam.sim import SimRobot, generate_maze
+from tools.evaluate import Alignment, evaluate, load_map
+from tools.run_sim import main as run_sim_main
+
+
+def mission(gt: WallMap, start, heading, noise=PERFECT_SIM, cfg=DEFAULT, seed=0, logger=None):
+    robot = SimRobot(gt, start, heading, config=cfg, noise=noise, seed=seed)
+    result = Explorer(robot, cfg, logger).run()
+    metrics = evaluate(Alignment(start, heading).apply(result.map.to_wallmap()), gt)
+    return robot, result, metrics
+
+
+@pytest.mark.parametrize(
+    "w,h,loops,seed",
+    [(1, 1, 0, 0), (1, 4, 0, 1), (3, 3, 2, 2), (4, 5, 0, 3), (5, 3, 3, 4)],
+)
+def test_perfect_robot_maps_everything(w, h, loops, seed):
+    rng = random.Random(seed)
+    gt = generate_maze(w, h, seed=seed, loops=loops)
+    start = rng.choice(sorted(gt.cells))
+    heading = rng.choice(list(Direction))
+    robot, result, m = mission(gt, start, heading)
+    assert result.reason == "complete"
+    assert m.map_accuracy_pct == 100.0
+    assert m.coverage_pct == 100.0
+    assert m.phantom_cells == []
+    assert robot.collisions == 0
+    assert len(result.map.visited) == w * h
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_noisy_robot_maps_everything(seed):
+    rng = random.Random(seed)
+    gt = generate_maze(4, 5, seed=seed, loops=seed % 3)
+    start = rng.choice(sorted(gt.cells))
+    heading = rng.choice(list(Direction))
+    robot, result, m = mission(gt, start, heading, noise=DEFAULT.sim_noise, seed=seed)
+    assert result.reason == "complete"
+    assert m.map_accuracy_pct == 100.0
+    assert robot.collisions == 0
+    assert result.localization_mismatches == 0
+    true_end = robot.true_pose_map()
+    assert abs(true_end.x - result.end_pose.x) < 0.05
+    assert abs(true_end.y - result.end_pose.y) < 0.05
+
+
+def test_mission_stops_at_cell_limit():
+    cfg = replace(DEFAULT, limits=replace(DEFAULT.limits, max_cells=3))
+    gt = generate_maze(4, 4, seed=5)
+    _, result, m = mission(gt, (0, 0), Direction.N, cfg=cfg)
+    assert result.reason == "limit_max_cells"
+    assert len(result.map.visited) == 3
+
+
+def test_run_outputs_are_complete(tmp_path):
+    gt = generate_maze(3, 2, seed=8)
+    logger = RunLogger(str(tmp_path))
+    _, result, _ = mission(gt, (1, 0), Direction.E, noise=DEFAULT.sim_noise, logger=logger)
+    logger.close()
+    for name in ("exploration_log.csv", "trajectory.csv", "sensors.csv", "map.json", "map.txt", "summary.json"):
+        assert (tmp_path / name).stat().st_size > 0, name
+
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["stop_reason"] == "complete"
+    assert summary["start_cell"] == [0, 0]
+    assert summary["estimated_size_cells"] in ([3, 2], [2, 3])
+    assert summary["cell_path"][0] == [0, 0]
+    assert "true_end_pose" in summary
+
+    events = (tmp_path / "exploration_log.csv").read_text().splitlines()
+    kinds = {line.split(",")[1] for line in events[1:]}
+    assert {"START", "SCAN", "TURN", "DRIVE", "ARRIVED", "END"} <= kinds
+
+    robot_map = load_map(tmp_path / "map.json")
+    m = evaluate(Alignment((1, 0), Direction.E).apply(robot_map), gt)
+    assert m.map_accuracy_pct == 100.0
+
+
+def test_run_sim_cli(tmp_path, capsys):
+    rc = run_sim_main(["--gt", "ground_truth/example_3x2.txt", "--out", str(tmp_path), "--seed", "3"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Map Accuracy   : 100.00 %" in out
+    run_dirs = list(tmp_path.iterdir())
+    assert len(run_dirs) == 1
+    assert (run_dirs[0] / "ground_truth.txt").exists()

@@ -58,6 +58,82 @@ class MapEvidence:
 
 
 @dataclass(frozen=True)
+class Perception:
+    """Turning a range into WALL / OPEN.
+
+    ``edge`` = distance from the sensor to the side of the current cell along
+    the ray (about 0.30 m from the centre). The next possible wall is a whole
+    cell further, so there is a wide gap between the two cases.
+    """
+
+    wall_tol_m: float = 0.12  # reading <= edge + this -> WALL
+    open_margin_m: float = 0.20  # reading >= edge + this -> OPEN, between -> unsure
+    tof_samples: int = 5
+    tof_sample_delay_s: float = 0.02
+    tof_min_valid_samples: int = 3
+    # A ray more than this far from a grid axis is not associated with a wall.
+    max_off_axis_deg: float = 25.0
+    max_association_cells: int = 8
+
+
+@dataclass(frozen=True)
+class EKFParams:
+    init_std_xy_m: float = 0.02
+    init_std_heading_deg: float = 1.0
+    # Process noise is a random walk: variance grows with the distance / angle
+    # moved, independent of the control rate. 1-sigma after 1 m of driving:
+    odom_along_std_per_m: float = 0.08
+    odom_lateral_std_per_m: float = 0.04
+    # 1-sigma after turning 1 rad, and heading drift per sqrt(second).
+    turn_std_per_rad: float = 0.03
+    gyro_std_deg_per_sqrt_s: float = 0.15
+    tof_std_m: float = 0.02
+    sharp_std_m: float = 0.01
+    sharp_std_frac: float = 0.05
+    gate_sigma: float = 3.0
+    # Walls repeat every cell, so a reading that disagrees by more than about
+    # a quarter cell may belong to a different wall: never apply it.
+    max_innovation_m: float = 0.15
+    # Rays hitting a wall at a shallower angle than this are not used.
+    min_incidence_deg: float = 30.0
+
+
+@dataclass(frozen=True)
+class Motion:
+    loop_hz: float = 20.0
+    drive_mps: float = 0.25
+    min_mps: float = 0.04
+    k_along: float = 1.5  # m/s per m of remaining distance
+    k_lateral: float = 1.5  # strafe m/s per m of lateral error
+    max_strafe_mps: float = 0.10
+    k_heading: float = 2.5  # dps per degree
+    max_turn_dps: float = 90.0
+    min_turn_dps: float = 8.0
+    max_heading_hold_dps: float = 30.0
+    pos_tol_m: float = 0.01
+    turn_tol_deg: float = 1.0
+    turn_stable_ticks: int = 3
+    turn_timeout_s: float = 8.0
+    drive_timeout_s: float = 10.0
+    # ToF straight ahead closer than this while driving -> emergency stop.
+    emergency_front_m: float = 0.10
+    # One front IR hit -> strafe away at this speed.
+    ir_avoid_mps: float = 0.05
+
+
+@dataclass(frozen=True)
+class Exploration:
+    # Order of preference relative to the current heading, in quarter turns
+    # clockwise: straight, right, left, back.
+    turn_preference: tuple = (0, 1, 3, 2)
+    # A blocked move adds this much WALL evidence to the edge.
+    blocked_wall_weight: float = 2.0
+    # Look again at directions that came out unsure.
+    rescan_unsure: int = 1
+    max_consecutive_failures: int = 5
+
+
+@dataclass(frozen=True)
 class Limits:
     """Safety caps for exploring a maze of unknown size."""
 
@@ -99,6 +175,10 @@ class Config:
     geometry: Geometry = field(default_factory=Geometry)
     sensors: Sensors = field(default_factory=Sensors)
     evidence: MapEvidence = field(default_factory=MapEvidence)
+    perception: Perception = field(default_factory=Perception)
+    ekf: EKFParams = field(default_factory=EKFParams)
+    motion: Motion = field(default_factory=Motion)
+    exploration: Exploration = field(default_factory=Exploration)
     limits: Limits = field(default_factory=Limits)
     sim_noise: SimNoise = field(default_factory=SimNoise)
     # Simulator physics step. Commands are integrated in steps of this size.

@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Mission output (commit a chosen run with git add -f)
+runs/

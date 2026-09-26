@@ -128,3 +128,44 @@ def point_segment_distance(px: float, py: float, seg: Segment) -> float:
     u = ((px - seg.x1) * sx + (py - seg.y1) * sy) / length_sq
     u = max(0.0, min(1.0, u))
     return math.hypot(px - (seg.x1 + u * sx), py - (seg.y1 + u * sy))
+
+
+class Line(NamedTuple):
+    """An infinite grid line: x = value (axis 'x') or y = value (axis 'y')."""
+
+    axis: str
+    value: float
+
+
+def edge_line(cell: Cell, d: Direction, cell_size: float) -> Line:
+    """The grid line on side ``d`` of ``cell``."""
+    cx, cy = cell_center(cell, cell_size)
+    h = cell_size / 2.0
+    if d == Direction.N:
+        return Line("y", cy + h)
+    if d == Direction.S:
+        return Line("y", cy - h)
+    if d == Direction.E:
+        return Line("x", cx + h)
+    return Line("x", cx - h)
+
+
+def ray_line_distance(ox: float, oy: float, heading_deg: float, line: Line) -> Optional[float]:
+    """Distance along the ray to the line, None if parallel or behind."""
+    dx, dy = heading_vector(heading_deg)
+    if line.axis == "x":
+        comp, origin = dx, ox
+    else:
+        comp, origin = dy, oy
+    if abs(comp) < 1e-9:
+        return None
+    t = (line.value - origin) / comp
+    return t if t >= 0.0 else None
+
+
+def sensor_ray(
+    pose: Pose, forward_m: float, right_m: float, angle_deg: float
+) -> Tuple[float, float, float]:
+    """(x, y, heading) of a sensor ray in the map frame."""
+    ox, oy = body_to_map(pose, forward_m, right_m)
+    return ox, oy, wrap_deg(pose.heading_deg + angle_deg)
