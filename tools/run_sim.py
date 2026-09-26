@@ -14,6 +14,7 @@ import os
 import random
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Sequence
 
 from slam.config import DEFAULT, PERFECT_SIM
@@ -22,6 +23,7 @@ from slam.geometry import Direction
 from slam.logger import RunLogger
 from slam.sim import SimRobot, generate_maze
 from tools.evaluate import ARROWS, Alignment, evaluate, format_report, load_gt
+from tools.plot_run import plot_run
 
 ARROW_OF = {d: a for a, d in ARROWS.items()}
 
@@ -41,8 +43,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.gt:
         with open(args.gt, encoding="utf-8") as f:
             gt_text = f.read()
-        from pathlib import Path
-
         gt, align = load_gt(Path(args.gt))
         if align is None:
             align = Alignment(min(gt.cells), Direction.N)
@@ -76,6 +76,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"End pose       : EKF ({ep.x:+.3f}, {ep.y:+.3f}, {ep.heading_deg:+.1f}) "
           f"truth ({tp.x:+.3f}, {tp.y:+.3f}, {tp.heading_deg:+.1f})")
     print(format_report(metrics, align))
+    for path in plot_run(Path(out_dir), Path(out_dir) / "ground_truth.txt", align):
+        print(f"Figure         : {path}")
     return 0 if result.reason == "complete" else 1
 
 

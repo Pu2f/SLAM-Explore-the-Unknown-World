@@ -132,6 +132,7 @@ tools/
   run_robot.py   # รันภารกิจบนหุ่นจริง (+ ให้คะแนนถ้าใส่ --gt)
   check_robot.py # ตรวจ stream ของ sensor และเครื่องหมายทุกแกนบนหุ่นจริง
   calibrate_sharp.py  # วัด ADC ที่ระยะต่างๆ → calibration/sharp_*.json
+  plot_run.py    # map.png, trajectory.png, comparison.png ของ run
 tests/           # pytest — ทุกอย่างรันบน laptop ได้โดยไม่ต้องมีหุ่น
 ```
 
@@ -169,8 +170,20 @@ python3 -m venv .venv                      # Python 3.8.10
 .venv/bin/python -m tools.evaluate --gt ground_truth/example_3x2.txt --map <map.json|map.txt>
 ```
 
-ผลลัพธ์ของแต่ละ run อยู่ที่ `runs/<ชื่อ run>/`: `exploration_log.csv`, `trajectory.csv`, `sensors.csv`,
-`map.json`, `map.txt`, `summary.json` (+ `ground_truth.txt` เมื่อรันใน sim)
+ผลลัพธ์ของแต่ละ run อยู่ที่ `runs/<ชื่อ run>/`:
+
+| ไฟล์ | ตรงกับสิ่งที่ต้องส่ง (README) |
+|---|---|
+| `map.png`, `map.txt`, `map.json` | 1. Map |
+| `exploration_log.csv`, `sensors.csv` | 2. Exploration Log (คำสั่ง, ตำแหน่ง, เวลา, ค่า sensor) |
+| `trajectory.png`, `trajectory.csv`, `summary.json` (จุดเริ่ม/จุดจบ) | 3. Robot Trajectory |
+| `comparison.png`, `metrics.json` (เมื่อมี GT) | 4. Map Accuracy / Coverage |
+
+`run_sim` / `run_robot` วาดรูปให้อัตโนมัติตอนจบ วาดใหม่ได้ด้วย `python -m tools.plot_run runs/<run> [--gt ...]`
+
+สีในรูป: เส้นทางใช้ categorical slot 1–3 ตามลำดับ (EKF = ฟ้า, odometry = ส้ม ประ, truth = เขียวอมฟ้า จุด)
+ผ่าน validator ทุกข้อ ยกเว้น contrast ของสีที่ 3 → จึงมี legend และรูปแบบเส้นต่างกันเสมอ;
+สถานะช่อง (ถูก/ผิด/ยังไม่ครบ) ใช้ status palette คู่กับสัญลักษณ์ ✓ ✗ ? ไม่ใช้สีอย่างเดียว
 
 ### ผลใน sim (เขาวงกต 4×5 สุ่ม, จุดเริ่ม/ทิศสุ่ม, 10 seed ต่อระดับ)
 
@@ -206,4 +219,4 @@ python3 -m venv .venv                      # Python 3.8.10
 | perception, localizer (EKF), motion, explorer, logger, run_sim + tests | ✅ |
 | robot_io (RealRobot), check_robot, calibrate_sharp, run_robot + tests (fake SDK) | ✅ |
 | ทดสอบบนหุ่นจริง: check → วัด mount → calibrate → ซ้อม | ⬜ |
-| plot (แผนที่/เส้นทาง PNG) | ⬜ |
+| plot_run (map / trajectory / comparison PNG) + ต่อเข้ากับ run_sim, run_robot | ✅ |
