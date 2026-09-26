@@ -109,27 +109,30 @@ def maze_with_exit(seed):
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_exit_is_found_and_the_robot_returns_and_stops(seed):
+def test_exit_is_found_left_and_the_rest_explored(seed):
     gt = maze_with_exit(seed)
     robot = SimRobot(gt, (1, 1), Direction.N, noise=DEFAULT.sim_noise, seed=seed, room_margin_m=ROOM)
     result = Explorer(robot, DEFAULT).run()
-    assert result.reason == "exit_found"
+    assert result.reason == "complete"
     assert result.map.outside == {(0, -2)}  # GT (1, -1), just below the gap
-    wm = Alignment((1, 1), Direction.N).apply(result.map.to_wallmap())
-    assert wm.cells <= gt.cells  # nothing outside the maze left in the map
-    assert result.end_cell == (0, -1)  # back in the gap cell
+    m = evaluate(Alignment((1, 1), Direction.N).apply(result.map.to_wallmap()), gt)
+    assert m.map_accuracy_pct == 100.0
+    assert m.phantom_cells == []  # nothing outside the maze left in the map
     assert robot.collisions == 0
 
 
-def test_exit_continue_mode_maps_the_rest():
-    cfg = replace(DEFAULT, exploration=replace(DEFAULT.exploration, on_exit="continue"))
+@pytest.mark.parametrize("room", [ROOM, None])  # room far away, or nothing at all
+def test_exit_behind_the_start_is_explored_last(room):
+    """Real run 2026-09-27 03:05: the only open side the robot saw at the
+    start was a gap behind it; it left through it before exploring anything."""
     gt = maze_with_exit(0)
-    robot = SimRobot(gt, (1, 1), Direction.N, config=cfg, seed=0, room_margin_m=ROOM)
-    result = Explorer(robot, cfg).run()
+    robot = SimRobot(gt, (1, 0), Direction.N, noise=DEFAULT.sim_noise, seed=0, room_margin_m=room)
+    result = Explorer(robot, DEFAULT).run()
     assert result.reason == "complete"
-    m = evaluate(Alignment((1, 1), Direction.N).apply(result.map.to_wallmap()), gt)
-    assert m.map_accuracy_pct == 100.0
+    assert result.path[1] != (0, -1)  # first move is not out through the gap
+    m = evaluate(Alignment((1, 0), Direction.N).apply(result.map.to_wallmap()), gt)
     assert m.phantom_cells == []
+    assert m.map_accuracy_pct == 100.0
 
 
 @pytest.mark.parametrize("seed", [3, 4])

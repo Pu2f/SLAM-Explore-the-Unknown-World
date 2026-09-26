@@ -102,3 +102,11 @@ def test_heading_gain_allows_heading_updates():
     ekf.cov[0, 2] = ekf.cov[2, 0] = 0.001
     ekf.update_range(0.30, FRONT, 90.0, Line("x", 0.35), 0.01)
     assert ekf.pose.heading_deg != pytest.approx(3.0)
+
+
+def test_heading_uncertainty_is_capped_when_imu_owns_heading():
+    ekf = EKF(P)
+    ekf.predict((0.0, 0.0), 0.0, 0.0)
+    for i in range(1, 200):  # many turns and minutes of driving
+        ekf.predict((0.0, 0.01 * i), (i * 90.0) % 360 - 180, i * 2.0)
+    assert ekf.std()[2] <= P.heading_std_cap_deg + 1e-9

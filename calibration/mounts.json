@@ -1,8 +1,18 @@
 {
-  "tof_emitter_offset_m": 0.182,
+  "tof_emitter_offset_m": 0.1732,
   "tof_pivot_forward_m": 0.0,
-  "sharp_left_offset_m": 0.1845,
-  "sharp_right_offset_m": 0.1845,
-  "measured_at": "2026-09-27T02:31:41",
-  "source": "start-cell scan of runs/robot_20260927_023141: ToF E+W = 0.123+0.113, Sharp L+R = 0.110+0.121 with 0.6 m cells. Effective values (include wall thickness). Re-measure with python -m tools.calibrate_mounts."
+  "sharp_left_offset_m": 0.1718,
+  "sharp_right_offset_m": 0.1718,
+  "measured_at": "2026-09-27T03:05:22",
+  "source": "python -m tools.calibrate_mounts (robot centred in a cell, walls left and right)",
+  "raw": {
+    "tof": {
+      "N": null,
+      "E": 0.1275,
+      "S": 2.659,
+      "W": 0.126
+    },
+    "sharp_left": 0.12570093457943926,
+    "sharp_right": 0.1307017543859649
+  }
 }

@@ -92,6 +92,10 @@ class Explorer:
         self.mismatches = 0
         # Latest scan per direction: (ToF median or None, distance to that side).
         self.last_tof: Dict[Direction, Tuple[Optional[float], Optional[float]]] = {}
+        # Per cell: directions whose reading looked like an exit; explored last.
+        self.odd_dirs: Dict[Cell, set] = {}
+        # Cells entered through such a direction get the stricter exit check.
+        self.entered_odd: set = set()
 
     # ---- logging helpers -------------------------------------------------------
     def _event(self, name: str, **detail) -> None:
@@ -121,15 +125,15 @@ class Explorer:
                         if not self._leave_outside():
                             reason = "exit_return_failed"
                             break
-                        if self.cfg.exploration.on_exit == "stop":
-                            reason = "exit_found"
-                            break
                         continue
 
                 nxt = self._choose_new_cell()
                 if nxt is not None:
                     d, target = nxt
+                    via_odd = d in self.odd_dirs.get(self.cell, set())
                     if self._move(d, target, "EXPLORE"):
+                        if via_odd:
+                            self.entered_odd.add(target)
                         self.stack.append(target)
                         self.map.mark_visited(target)
                         failures = 0
@@ -208,9 +212,21 @@ class Explorer:
             # Use where the gimbal really is: a real one can stop a few
             # degrees short of the command (notably near +/-180).
             gimbal = r.gimbal_yaw()
+            p = cfg.perception
+            for off in (-p.tof_none_retry_deg, p.tof_none_retry_deg):
+                if dist is not None or p.tof_none_retry_deg <= 0:
+                    break
+                dist = look(r, angle_diff(d.heading_deg + off, pose.heading_deg), p)
+                gimbal = r.gimbal_yaw()
             edge = edge_distance(ray_of(pose, cfg.sensors.tof, gimbal), self.cell, d, cell_size)
             self.last_tof[d] = (dist, edge)
-            verdict = classify_range(dist, edge if edge is not None else math.inf, cfg.perception)
+            if self._abnormal_reading(dist, edge):
+                self.odd_dirs.setdefault(self.cell, set()).add(d)
+            else:
+                self.odd_dirs.get(self.cell, set()).discard(d)
+            verdict = classify_range(
+                dist, edge if edge is not None else math.inf, p, none_means_open=p.tof_none_means_open
+            )
             if verdict != Verdict.UNSURE:
                 self.map.observe(self.cell, d, verdict == Verdict.WALL, cfg.evidence.tof_weight)
             verdicts[d.name] = verdict.value
@@ -247,6 +263,8 @@ class Explorer:
 
     # ---- decisions -------------------------------------------------------------------
     def _choose_new_cell(self) -> Optional[Tuple[Direction, Cell]]:
+        odd = self.odd_dirs.get(self.cell, set())
+        candidates = []
         for k in self.cfg.exploration.turn_preference:
             d = self.heading.turned(k)
             target = neighbor(self.cell, d)
@@ -255,8 +273,12 @@ class Explorer:
                 and target not in self.map.visited
                 and target not in self.map.outside
             ):
-                return d, target
-        return None
+                candidates.append((d in odd, d, target))
+        if not candidates:
+            return None
+        # Stable: normal directions keep the turn preference, odd ones go last.
+        _, d, target = sorted(candidates, key=lambda c: c[0])[0]
+        return d, target
 
     def _frontier_exists(self) -> bool:
         for c in self.map.visited:
@@ -320,7 +342,10 @@ class Explorer:
             return False
         others = [d for d in Direction if d != came_from]
         abnormal = [d for d in others if self._abnormal_reading(*self.last_tof.get(d, (None, None)))]
-        if len(abnormal) < ex.exit_min_abnormal:
+        # Entered through a direction that already looked like an exit: one
+        # more abnormal reading is enough.
+        need = 1 if self.cell in self.entered_odd else ex.exit_min_abnormal
+        if len(abnormal) < need:
             return False
         self._event("EXIT_SUSPECTED", abnormal=[d.name for d in abnormal])
 

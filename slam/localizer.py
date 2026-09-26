@@ -99,6 +99,12 @@ class EKF:
             + math.radians(self.p.gyro_std_deg_per_sqrt_s) ** 2 * dt
         )
         self.cov = F @ self.cov @ F.T + Q
+        cap = math.radians(self.p.heading_std_cap_deg) ** 2
+        if self.p.heading_update_gain == 0.0 and self.cov[2, 2] > cap:
+            # Rescale heading row/column so the covariance stays consistent.
+            k = math.sqrt(cap / self.cov[2, 2])
+            self.cov[2, :] *= k
+            self.cov[:, 2] *= k
 
     # ---- correct ---------------------------------------------------------------
     def expected_range(

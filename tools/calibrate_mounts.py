@@ -104,6 +104,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         out["sharp_right_offset_m"] = offset
 
     out["measured_at"] = datetime.now().isoformat(timespec="seconds")
+    out["source"] = "python -m tools.calibrate_mounts (robot centred in a cell, walls left and right)"
     out["raw"] = {"tof": raw, "sharp_left": sharp_l, "sharp_right": sharp_r}
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:

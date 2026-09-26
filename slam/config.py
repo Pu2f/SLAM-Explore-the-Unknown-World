@@ -73,6 +73,12 @@ class Perception:
     tof_samples: int = 5
     tof_sample_delay_s: float = 0.02
     tof_min_valid_samples: int = 3
+    # A ToF that returns nothing at all is looked at again this far to either
+    # side; still nothing -> treated as OPEN. A wall within a cell always
+    # gives a reading (real run: the long corridor ahead of the start cell
+    # read nothing, and calling it "unsure" sent the robot out the back).
+    tof_none_retry_deg: float = 10.0
+    tof_none_means_open: bool = True
     # A ray more than this far from a grid axis is not associated with a wall.
     max_off_axis_deg: float = 25.0
     max_association_cells: int = 8
@@ -98,6 +104,10 @@ class EKFParams:
     # with wrong sensor offsets dragged the EKF heading 14-32 deg off the
     # IMU and the robot steered crooked to follow it.
     heading_update_gain: float = 0.0
+    # With the heading not corrected, its variance would grow without bound
+    # and inflate the position uncertainty through the motion model. Cap it
+    # at what the IMU is actually good for.
+    heading_std_cap_deg: float = 2.0
     # Walls repeat every cell, so a reading that disagrees by more than about
     # a quarter cell may belong to a different wall: never apply it.
     max_innovation_m: float = 0.15
@@ -131,7 +141,9 @@ class Motion:
 @dataclass(frozen=True)
 class Exploration:
     # Order of preference relative to the current heading, in quarter turns
-    # clockwise: straight, right, left, back.
+    # clockwise: straight, right, left, back. Directions whose ToF reading
+    # looked like an exit (nothing / too far / off the grid) come after all
+    # normal ones.
     turn_preference: tuple = (0, 1, 3, 2)
     # A blocked move adds this much WALL evidence to the edge.
     blocked_wall_weight: float = 2.0
@@ -144,14 +156,13 @@ class Exploration:
     # abnormal ToF reading (none; farther than `exit_far_m`; or more than
     # `exit_grid_tol_m` off every grid line, where maze walls must be), look
     # again `exit_verify_deg` either side of each direction. Still no wall ->
-    # the robot has left the maze: go back to the previous cell and stop
-    # (`on_exit = "stop"`) or keep exploring elsewhere ("continue").
+    # the robot has left the maze: it goes back in, never returns there, and
+    # carries on. The mission only ends once the maze is fully explored.
     exit_detection: bool = True
     exit_far_m: float = 3.0
     exit_grid_tol_m: float = 0.10
     exit_min_abnormal: int = 2
     exit_verify_deg: float = 20.0
-    on_exit: str = "stop"
 
 
 @dataclass(frozen=True)
