@@ -8,7 +8,7 @@ import pytest
 
 from slam.config import DEFAULT, PERFECT_SIM
 from slam.explorer import Explorer
-from slam.geometry import Direction
+from slam.geometry import Direction, angle_diff
 from slam.logger import RunLogger
 from slam.maze_map import EdgeState, WallMap
 from slam.sim import SimRobot, generate_maze
@@ -205,3 +205,17 @@ def test_lost_robot_stream_ends_the_mission_with_a_clear_reason():
     robot.imu_yaw = dying_yaw
     result = Explorer(robot, DEFAULT).run()
     assert result.reason == "robot_stream_lost"
+
+
+@pytest.mark.parametrize("error", [-6.0, 6.0])
+def test_crooked_start_is_squared_up_from_wall_angles(error):
+    """A robot put down a few degrees off: with the IMU alone every turn
+    stays that far off the maze axes (real runs 04:00 drove crooked)."""
+    gt = generate_maze(4, 4, seed=2)
+    robot = SimRobot(gt, (1, 1), Direction.N, noise=PERFECT_SIM, start_heading_error_deg=error)
+    ex = Explorer(robot, DEFAULT)
+    ex.nav.tick(front_tof=False)
+    ex.map.mark_visited((0, 0))
+    ex.scan()
+    true_h = robot.true_pose_map().heading_deg  # = error, in the robot's own frame
+    assert abs(angle_diff(ex.ekf.pose.heading_deg, true_h)) < 1.0

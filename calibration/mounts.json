@@ -1,18 +1,18 @@
 {
-  "tof_emitter_offset_m": 0.1717,
+  "tof_emitter_offset_m": 0.1768,
   "tof_pivot_forward_m": 0.0,
-  "sharp_left_offset_m": 0.1684,
-  "sharp_right_offset_m": 0.1684,
-  "measured_at": "2026-09-27T03:46:35",
+  "sharp_left_offset_m": 0.1711,
+  "sharp_right_offset_m": 0.1711,
+  "measured_at": "2026-09-27T04:00:40",
   "source": "python -m tools.calibrate_mounts (robot centred in a cell, walls left and right)",
   "raw": {
     "tof": {
-      "N": 2.717,
-      "E": 0.11900000000000002,
-      "S": 1.549,
-      "W": 0.13750000000000004
+      "N": 2.743,
+      "E": 0.11949999999999997,
+      "S": 2.522,
+      "W": 0.12699999999999997
     },
-    "sharp_left": 0.14392523364485982,
-    "sharp_right": 0.1192982456140351
+    "sharp_left": 0.13457943925233645,
+    "sharp_right": 0.12324561403508771
   }
 }

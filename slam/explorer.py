@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from statistics import median
 from typing import Dict, List, Optional, Tuple
 
 from .config import DEFAULT, Config
@@ -25,7 +26,7 @@ from .localizer import EKF
 from .logger import RunLogger
 from .maze_map import EdgeKey, EdgeState, MazeMap, edge_key
 from .motion import Navigator
-from .perception import Verdict, classify_range, edge_distance, look, ray_of
+from .perception import Verdict, classify_range, edge_distance, heading_from_wall, look, ray_of
 from .robot_api import RobotAPI, RobotStreamLost
 
 
@@ -212,6 +213,7 @@ class Explorer:
         verdicts: Dict[str, str] = {}
 
         tof_readings: List[Tuple[float, float]] = []
+        wall_hits: List[Tuple[Direction, float, float]] = []
         for k in (0, 1, 2, 3):
             d = self.heading.turned(k)
             if not first and self.map.state(self.cell, d) != EdgeState.UNKNOWN:
@@ -240,6 +242,8 @@ class Explorer:
             verdicts[d.name] = verdict.value
             if dist is not None:
                 tof_readings.append((gimbal, dist))
+                if verdict == Verdict.WALL and edge is not None:
+                    wall_hits.append((d, gimbal, dist))
             if self.log is not None:
                 self.log.sensor(r.now(), "tof_scan", self.cell, d.name, gimbal, dist, verdict.value)
 
@@ -263,6 +267,8 @@ class Explorer:
                 self.log.sensor(r.now(), name + "_scan", self.cell, d.name, None, value,
                                 verdict.value if used else f"{verdict.value} (unused)")
 
+        if cfg.ekf.wall_heading and wall_hits:
+            self._heading_from_walls(pose, wall_hits)
         r.gimbal_moveto(0.0)
         # Now that the map knows these walls, use the same readings to localize.
         for gimbal, dist in tof_readings:
@@ -274,9 +280,37 @@ class Explorer:
         if self.log is not None:
             self.log.save_map(self.map, self.cell)
 
+    def _heading_from_walls(self, pose: Pose, wall_hits: List[Tuple[Direction, float, float]]) -> None:
+        """Measure the robot's heading from the angle of adjacent walls.
+
+        The IMU only knows turns relative to the start pose, so a robot put
+        down a few degrees off, or a slowly drifting IMU, leaves every turn
+        that far off the maze axes. A second ToF hit on the same wall,
+        `wall_heading_probe_deg` away from the first, gives the wall's angle.
+        """
+        e, r = self.cfg.ekf, self.robot
+        estimates = []
+        for d, g1, d1 in wall_hits[: e.wall_heading_max_walls]:
+            for sign in (1.0, -1.0):  # probe both ways: two estimates per wall
+                d2 = look(r, g1 + sign * e.wall_heading_probe_deg, self.cfg.perception)
+                g2 = r.gimbal_yaw()
+                if d2 is None:
+                    continue
+                h = heading_from_wall(g1, d1, g2, d2, d, pose.heading_deg)
+                if self.log is not None:
+                    self.log.sensor(r.now(), "tof_wall_angle", self.cell, d.name, g2, d2,
+                                    "" if h is None else f"heading {h:.2f}")
+                if h is not None:
+                    estimates.append(h)
+        if not estimates:
+            return
+        measured = pose.heading_deg + median([angle_diff(h, pose.heading_deg) for h in estimates])
+        res = self.ekf.update_heading(measured, e.wall_heading_std_deg, e.wall_heading_gate_deg)
+        self._event("HEADING_FROM_WALLS", measured=round(measured, 2), correction=round(res.innovation_m, 2),
+                    used=res.accepted, n=len(estimates))
+
     # ---- decisions -------------------------------------------------------------------
     def _choose_new_cell(self) -> Optional[Tuple[Direction, Cell]]:
-        odd = self.odd_dirs.get(self.cell, set())
         candidates = []
         for k in self.cfg.exploration.turn_preference:
             d = self.heading.turned(k)
@@ -285,7 +319,11 @@ class Explorer:
                 continue
             state = self.map.state(self.cell, d)
             if state == EdgeState.OPEN:
-                candidates.append((1 if d in odd else 0, d, target))
+                # Exit-like readings are NOT demoted: far readings are too
+                # unreliable to tell a long corridor from a gap (real run
+                # 04:02 turned its back on the maze at the start); exits are
+                # caught after stepping through instead.
+                candidates.append((0, d, target))
             elif state == EdgeState.UNKNOWN:
                 # Still unknown after re-looking: drive in carefully as a last
                 # resort. A wall stops the move (front ToF) and is recorded;
@@ -293,8 +331,7 @@ class Explorer:
                 candidates.append((2, d, target))
         if not candidates:
             return None
-        # Stable: normal directions keep the turn preference, odd ones go
-        # after them, unknown ones last.
+        # Stable: open sides in turn-preference order, unknown ones last.
         _, d, target = sorted(candidates, key=lambda c: c[0])[0]
         return d, target
 

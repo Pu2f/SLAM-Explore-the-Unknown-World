@@ -87,7 +87,9 @@ class Perception:
 @dataclass(frozen=True)
 class EKFParams:
     init_std_xy_m: float = 0.02
-    init_std_heading_deg: float = 1.0
+    # A robot put down by hand is easily a few degrees off the maze axes;
+    # the first scan's wall angles fix it (see wall_heading below).
+    init_std_heading_deg: float = 5.0
     # Process noise is a random walk: variance grows with the distance / angle
     # moved, independent of the control rate. 1-sigma after 1 m of driving:
     odom_along_std_per_m: float = 0.08
@@ -108,6 +110,14 @@ class EKFParams:
     # and inflate the position uncertainty through the motion model. Cap it
     # at what the IMU is actually good for.
     heading_std_cap_deg: float = 2.0
+    # Heading measured from a wall's angle at scans (two ToF hits on the same
+    # wall, `wall_heading_probe_deg` apart): absolute, so it removes the start
+    # placement error and IMU drift that the IMU alone keeps forever.
+    wall_heading: bool = True
+    wall_heading_probe_deg: float = 25.0
+    wall_heading_max_walls: int = 2
+    wall_heading_std_deg: float = 1.5
+    wall_heading_gate_deg: float = 12.0
     # Walls repeat every cell, so a reading that disagrees by more than about
     # a quarter cell may belong to a different wall: never apply it.
     max_innovation_m: float = 0.15

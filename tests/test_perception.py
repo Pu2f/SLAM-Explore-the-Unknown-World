@@ -53,3 +53,20 @@ def test_look_points_gimbal_and_takes_median():
     assert look(robot, 0.0, P) == pytest.approx(0.30)
     assert look(robot, 90.0, P) == pytest.approx(0.90)
     assert robot.gimbal_yaw() == pytest.approx(90.0)
+
+
+@pytest.mark.parametrize("true_heading", [0.0, 4.0, -7.0, 90.0 + 3.0, 180.0 - 5.0])
+def test_heading_from_two_hits_on_one_wall(true_heading):
+    import math
+
+    from slam.perception import heading_from_wall
+
+    # Wall along x at y = 0.25 (the N side of a cell), robot at the origin.
+    def hit(g):
+        ang = math.radians(true_heading + g)
+        return 0.25 / math.cos(ang)  # distance along the ray to y = 0.25
+
+    g1 = -true_heading  # gimbal pointing north in the map
+    g2 = g1 + 25.0
+    h = heading_from_wall(g1, hit(g1), g2, hit(g2), Direction.N, believed_deg=0.0 if abs(true_heading) < 45 else true_heading)
+    assert h == pytest.approx(true_heading, abs=1e-6)

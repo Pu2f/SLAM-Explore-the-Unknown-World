@@ -105,8 +105,21 @@ def test_heading_gain_allows_heading_updates():
 
 
 def test_heading_uncertainty_is_capped_when_imu_owns_heading():
-    ekf = EKF(P)
+    from dataclasses import replace
+
+    p = replace(P, init_std_heading_deg=0.5)
+    ekf = EKF(p)
     ekf.predict((0.0, 0.0), 0.0, 0.0)
     for i in range(1, 200):  # many turns and minutes of driving
         ekf.predict((0.0, 0.01 * i), (i * 90.0) % 360 - 180, i * 2.0)
-    assert ekf.std()[2] <= P.heading_std_cap_deg + 1e-9
+    assert ekf.std()[2] == pytest.approx(p.heading_std_cap_deg)
+
+
+def test_large_start_heading_uncertainty_is_kept_until_measured():
+    ekf = EKF(P)  # init 5 deg: placement by hand
+    ekf.predict((0.0, 0.0), 0.0, 0.0)
+    ekf.predict((0.0, 0.1), 0.0, 1.0)
+    assert ekf.std()[2] == pytest.approx(P.init_std_heading_deg, rel=0.01)
+    ekf.update_heading(4.0, 1.5, 12.0)
+    assert ekf.std()[2] < 2.0
+    assert ekf.pose.heading_deg == pytest.approx(4.0, abs=0.5)

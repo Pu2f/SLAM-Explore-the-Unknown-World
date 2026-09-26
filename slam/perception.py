@@ -109,3 +109,29 @@ def associate_wall(
             return None
         cell = neighbor(cell, d)
     return None
+
+
+def heading_from_wall(
+    g1_deg: float, d1: float, g2_deg: float, d2: float, wall_side: Direction, believed_deg: float
+) -> Optional[float]:
+    """Robot heading (map frame) implied by two ToF hits on one straight wall.
+
+    ``g`` = gimbal yaw relative to the chassis, ``d`` = distance from the
+    gimbal pivot. The two hits give the wall's direction in the body frame;
+    the wall on side ``wall_side`` of a cell runs perpendicular to it in the
+    map, which fixes the robot's real heading (the solution nearest the
+    believed one). Independent of where the robot stands in the cell and of
+    Sharp / odometry errors.
+    """
+    import math
+
+    p1 = (d1 * math.sin(math.radians(g1_deg)), d1 * math.cos(math.radians(g1_deg)))
+    p2 = (d2 * math.sin(math.radians(g2_deg)), d2 * math.cos(math.radians(g2_deg)))
+    vx, vy = p2[0] - p1[0], p2[1] - p1[1]  # (right, forward)
+    if math.hypot(vx, vy) < 0.03:
+        return None
+    wall_dir_body = math.degrees(math.atan2(vx, vy))  # compass angle in the body frame
+    heading = wall_side.heading_deg + 90.0 - wall_dir_body
+    # A wall has no direction: heading is defined modulo 180 deg.
+    k = round(angle_diff(believed_deg, heading) / 180.0)
+    return heading + 180.0 * k

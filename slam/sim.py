@@ -119,6 +119,7 @@ class SimRobot(RobotAPI):
         noise: Optional[SimNoise] = None,
         seed: int = 0,
         room_margin_m: Union[None, float, Tuple[float, float, float, float]] = None,
+        start_heading_error_deg: float = 0.0,
     ) -> None:
         """``room_margin_m``: put the walls of a room this far outside the
         maze's bounding box (one value, or (S, E, N, W) per side). A real arena sits in a room, so a ToF looking
@@ -142,7 +143,10 @@ class SimRobot(RobotAPI):
 
         # True state in the world frame.
         self.x, self.y = sx, sy
-        self.heading = self._frame_deg
+        # A robot placed by hand is never exactly square to the walls: its
+        # IMU / odometry zero is its real start heading, not the maze axis.
+        self.heading = self._frame_deg + start_heading_error_deg
+        self._imu_zero = self.heading
         self.gimbal = 0.0
         self._gimbal_target = 0.0
         self.t = 0.0
@@ -196,7 +200,7 @@ class SimRobot(RobotAPI):
         return self._odom_x, self._odom_y
 
     def imu_yaw(self) -> float:
-        true_map_heading = self.heading - self._frame_deg
+        true_map_heading = self.heading - self._imu_zero
         return wrap_deg(true_map_heading + self._imu_drift + self.rng.gauss(0.0, self.noise.imu_std_deg))
 
     # ---- RobotAPI: gimbal + ToF ----------------------------------------------
@@ -294,7 +298,7 @@ class SimRobot(RobotAPI):
         # Wheel odometry: integrates the *commanded* wheel motion (it cannot
         # see slip) along the heading the IMU reports, in the map frame.
         self._imu_drift += self.noise.imu_drift_dps * dt
-        imu_heading = self.heading - self._frame_deg + self._imu_drift
+        imu_heading = self.heading - self._imu_zero + self._imu_drift
         ofx, ofy = heading_vector(imu_heading)
         orx, ory = heading_vector(imu_heading + 90.0)
         self._odom_x += fwd * dt * ofx + right * dt * orx

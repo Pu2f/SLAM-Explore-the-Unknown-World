@@ -98,8 +98,11 @@ class EKF:
             self.p.turn_std_per_rad ** 2 * abs(dth)
             + math.radians(self.p.gyro_std_deg_per_sqrt_s) ** 2 * dt
         )
+        prev_var = self.cov[2, 2]
         self.cov = F @ self.cov @ F.T + Q
-        cap = math.radians(self.p.heading_std_cap_deg) ** 2
+        # Growth is capped, but a larger starting uncertainty is kept until
+        # a heading measurement shrinks it.
+        cap = max(math.radians(self.p.heading_std_cap_deg) ** 2, prev_var)
         if self.p.heading_update_gain == 0.0 and self.cov[2, 2] > cap:
             # Rescale heading row/column so the covariance stays consistent.
             k = math.sqrt(cap / self.cov[2, 2])
@@ -122,6 +125,21 @@ class EKF:
         rad = math.radians(heading)
         comp = abs(math.sin(rad)) if line.axis == "x" else abs(math.cos(rad))
         return comp >= math.sin(math.radians(self.p.min_incidence_deg))
+
+    def update_heading(self, measured_deg: float, std_deg: float, gate_deg: float) -> UpdateResult:
+        """Heading measured from the walls' angle (see explorer.scan)."""
+        nu = math.radians(wrap_deg(measured_deg - math.degrees(self.state[2])))
+        if abs(math.degrees(nu)) > gate_deg:
+            return UpdateResult(False, math.degrees(nu), math.inf)
+        H = np.array([[0.0, 0.0, 1.0]])
+        R = math.radians(std_deg) ** 2
+        S = float(H @ self.cov @ H.T) + R
+        K = (self.cov @ H.T) / S
+        self.state = self.state + (K * nu).ravel()
+        self.state[2] = _wrap_rad(self.state[2])
+        I_KH = np.eye(3) - K @ H
+        self.cov = I_KH @ self.cov @ I_KH.T + (K * R) @ K.T
+        return UpdateResult(True, math.degrees(nu), abs(nu) / math.sqrt(S))
 
     def update_range(
         self,
