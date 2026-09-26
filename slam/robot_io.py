@@ -269,8 +269,12 @@ class RealRobot(RobotAPI):
         s = self.cfg.sensors
         out = []
         for cal, adc in ((self.sharp_left_cal, left), (self.sharp_right_cal, right)):
-            d = cal.distance(adc)
-            out.append(d if d is not None and s.sharp_min_m <= d <= s.sharp_max_m else None)
+            # Above the table's highest ADC = closer than its nearest point:
+            # a wall is right there, not "nothing in range".
+            d = cal.min_m if adc is not None and adc > cal.adcs[-1] else cal.distance(adc)
+            if d is not None:
+                d = max(d, s.sharp_min_m)
+            out.append(d if d is not None and d <= s.sharp_max_m else None)
         return out[0], out[1]
 
     def ir_front(self) -> Tuple[bool, bool]:

@@ -241,6 +241,8 @@ class MazeMap:
         self._locked: Set[EdgeKey] = set()
         # Wall readings that contradicted a traversed (locked) edge.
         self.conflicts: Dict[EdgeKey, int] = {}
+        # Cells found to be outside the maze (through an exit); not part of the map.
+        self.outside: Set[Cell] = set()
 
     def observe(self, cell: Cell, d: Direction, is_wall: bool, weight: float) -> EdgeState:
         key = edge_key(cell, d)
@@ -261,6 +263,11 @@ class MazeMap:
 
     def mark_visited(self, cell: Cell) -> None:
         self.visited.add(cell)
+
+    def mark_outside(self, cell: Cell) -> None:
+        """The cell lies outside the maze: drop it from the map."""
+        self.outside.add(cell)
+        self.visited.discard(cell)
 
     def score(self, cell: Cell, d: Direction) -> float:
         return self._score.get(edge_key(cell, d), 0.0)
@@ -291,7 +298,7 @@ class MazeMap:
             for d in Direction:
                 if self.state(c, d) == EdgeState.OPEN:
                     out.add(neighbor(c, d))
-        return out
+        return out - self.outside
 
     def to_wallmap(self) -> WallMap:
         m = WallMap()
@@ -313,6 +320,7 @@ class MazeMap:
         out = self.to_wallmap().to_dict()
         out["start"] = [0, 0]
         out["visited"] = sorted([list(c) for c in self.visited])
+        out["outside"] = sorted([list(c) for c in self.outside])
         out["evidence"] = [
             {
                 "x": k[0],
@@ -333,6 +341,7 @@ class MazeMap:
     def from_dict(cls, data: dict, evidence: MapEvidence = DEFAULT.evidence) -> "MazeMap":
         m = cls(evidence)
         m.visited = {(int(c[0]), int(c[1])) for c in data.get("visited", [])}
+        m.outside = {(int(c[0]), int(c[1])) for c in data.get("outside", [])}
         for e in data.get("evidence", []):
             key = (int(e["x"]), int(e["y"]), Direction[e["dir"]])
             m._score[key] = float(e["score"])

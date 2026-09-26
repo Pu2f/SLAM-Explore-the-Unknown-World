@@ -90,6 +90,8 @@ class Explorer:
         self.moves = 0
         self.blocked = 0
         self.mismatches = 0
+        # Latest scan per direction: (ToF median or None, distance to that side).
+        self.last_tof: Dict[Direction, Tuple[Optional[float], Optional[float]]] = {}
 
     # ---- logging helpers -------------------------------------------------------
     def _event(self, name: str, **detail) -> None:
@@ -113,7 +115,16 @@ class Explorer:
                     reason = limit
                     break
                 if self._needs_scan(self.cell):
+                    new_cell = self.scans.get(self.cell, 0) == 0
                     self.scan()
+                    if new_cell and self._looks_like_exit():
+                        if not self._leave_outside():
+                            reason = "exit_return_failed"
+                            break
+                        if self.cfg.exploration.on_exit == "stop":
+                            reason = "exit_found"
+                            break
+                        continue
 
                 nxt = self._choose_new_cell()
                 if nxt is not None:
@@ -183,6 +194,7 @@ class Explorer:
         r = self.robot
         cell_size = cfg.geometry.cell_size_m
         first = self.scans.get(self.cell, 0) == 0
+        self.last_tof = {}
         self.nav.tick(front_tof=False)
         pose = self.ekf.pose
         verdicts: Dict[str, str] = {}
@@ -197,6 +209,7 @@ class Explorer:
             # degrees short of the command (notably near +/-180).
             gimbal = r.gimbal_yaw()
             edge = edge_distance(ray_of(pose, cfg.sensors.tof, gimbal), self.cell, d, cell_size)
+            self.last_tof[d] = (dist, edge)
             verdict = classify_range(dist, edge if edge is not None else math.inf, cfg.perception)
             if verdict != Verdict.UNSURE:
                 self.map.observe(self.cell, d, verdict == Verdict.WALL, cfg.evidence.tof_weight)
@@ -237,16 +250,99 @@ class Explorer:
         for k in self.cfg.exploration.turn_preference:
             d = self.heading.turned(k)
             target = neighbor(self.cell, d)
-            if self.map.state(self.cell, d) == EdgeState.OPEN and target not in self.map.visited:
+            if (
+                self.map.state(self.cell, d) == EdgeState.OPEN
+                and target not in self.map.visited
+                and target not in self.map.outside
+            ):
                 return d, target
         return None
 
     def _frontier_exists(self) -> bool:
         for c in self.map.visited:
             for d in Direction:
-                if self.map.state(c, d) == EdgeState.OPEN and neighbor(c, d) not in self.map.visited:
+                n = neighbor(c, d)
+                if (
+                    self.map.state(c, d) == EdgeState.OPEN
+                    and n not in self.map.visited
+                    and n not in self.map.outside
+                ):
                     return True
         return False
+
+    def _leave_outside(self) -> bool:
+        """Walk back into the maze after an exit was confirmed.
+
+        The robot may have gone several cells out before one looked clearly
+        outside, so step back along the DFS path until a cell with a wall
+        (maze cells nearly always have one); every cell passed on the way
+        is outside the maze and removed from the map.
+        """
+        i = len(self.stack) - 2
+        while i > 0 and not any(
+            self.map.state(self.stack[i], d) == EdgeState.WALL for d in Direction
+        ):
+            i -= 1
+        outside = self.stack[i + 1 :]
+        self._event("EXIT_CONFIRMED", outside=[list(c) for c in outside], back_to=list(self.stack[i]))
+        for c in outside:
+            self.map.mark_outside(c)
+        while len(self.stack) > i + 1:
+            prev = self.stack[-2]
+            if not self._move(self._direction_to(self.cell, prev), prev, "EXIT_RETURN"):
+                return False
+            self.stack.pop()
+        return True
+
+    def _abnormal_reading(self, dist: Optional[float], edge: Optional[float]) -> bool:
+        """A reading a maze would not produce: nothing, too far to trust, or
+        not on the grid (inside a maze every wall face is at edge + k cells)."""
+        ex = self.cfg.exploration
+        if dist is None or edge is None or dist > ex.exit_far_m:
+            return True
+        k = max(0, round((dist - edge) / self.cfg.geometry.cell_size_m))
+        return abs(dist - (edge + k * self.cfg.geometry.cell_size_m)) > ex.exit_grid_tol_m
+
+    def _looks_like_exit(self) -> bool:
+        """Has the robot just stepped out of the maze? (see Exploration config)
+
+        Inside a maze a cell nearly always has a wall on some side, and every
+        ToF reading lands on a grid line. Outside, no side has a wall and the
+        ToF sees nothing, or room walls / furniture at arbitrary distances.
+        Suspicious cells get a second look at an angle, in case the ToF slid
+        off a wall it was aimed at.
+        """
+        ex = self.cfg.exploration
+        if not ex.exit_detection or len(self.stack) < 2:
+            return False
+        came_from = self._direction_to(self.cell, self.stack[-2])
+        if any(self.map.state(self.cell, d) == EdgeState.WALL for d in Direction):
+            return False
+        others = [d for d in Direction if d != came_from]
+        abnormal = [d for d in others if self._abnormal_reading(*self.last_tof.get(d, (None, None)))]
+        if len(abnormal) < ex.exit_min_abnormal:
+            return False
+        self._event("EXIT_SUSPECTED", abnormal=[d.name for d in abnormal])
+
+        cfg, r = self.cfg, self.robot
+        pose = self.ekf.pose
+        try:
+            for d in others:
+                for off in (-ex.exit_verify_deg, ex.exit_verify_deg):
+                    dist = look(r, angle_diff(d.heading_deg + off, pose.heading_deg), cfg.perception)
+                    gimbal = r.gimbal_yaw()
+                    edge = edge_distance(
+                        ray_of(pose, cfg.sensors.tof, gimbal), self.cell, d, cfg.geometry.cell_size_m
+                    )
+                    if self.log is not None:
+                        self.log.sensor(r.now(), "tof_exit_check", self.cell, d.name, gimbal, dist)
+                    if dist is not None and edge is not None and dist <= edge + cfg.perception.wall_tol_m:
+                        self.map.observe(self.cell, d, True, cfg.evidence.tof_weight)
+                        self._event("EXIT_REJECTED", wall=d.name, dist=round(dist, 3))
+                        return False
+        finally:
+            r.gimbal_moveto(0.0)
+        return True
 
     @staticmethod
     def _direction_to(a: Cell, b: Cell) -> Direction:

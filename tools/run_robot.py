@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
-from slam.config import DEFAULT
+from slam.config import DEFAULT, with_calibration
 from slam.explorer import Explorer
 from slam.logger import RunLogger
 from slam.robot_io import RealRobot
@@ -33,10 +33,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--out", default="runs")
     args = p.parse_args(argv)
 
+    base = with_calibration(DEFAULT)
     cfg = replace(
-        DEFAULT,
-        robot_io=replace(DEFAULT.robot_io, conn_type=args.conn_type),
-        limits=replace(DEFAULT.limits, max_mission_s=args.max_time),
+        base,
+        robot_io=replace(base.robot_io, conn_type=args.conn_type),
+        limits=replace(base.limits, max_mission_s=args.max_time),
     )
     out_dir = os.path.join(args.out, "robot_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
     logger = RunLogger(out_dir)

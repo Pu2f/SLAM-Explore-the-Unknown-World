@@ -8,7 +8,9 @@ Values marked MEASURE are estimates and must be measured on the real robot.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import os
+from dataclasses import dataclass, field, replace
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,11 @@ class EKFParams:
     sharp_std_m: float = 0.01
     sharp_std_frac: float = 0.05
     gate_sigma: float = 3.0
+    # How much a wall-range update may change the heading (0 = never). The
+    # IMU yaw is trusted for heading: on the first real run, wall updates
+    # with wrong sensor offsets dragged the EKF heading 14-32 deg off the
+    # IMU and the robot steered crooked to follow it.
+    heading_update_gain: float = 0.0
     # Walls repeat every cell, so a reading that disagrees by more than about
     # a quarter cell may belong to a different wall: never apply it.
     max_innovation_m: float = 0.15
@@ -131,6 +138,20 @@ class Exploration:
     # Look again at directions that came out unsure.
     rescan_unsure: int = 1
     max_consecutive_failures: int = 5
+
+    # Exit ("fake exit") detection. After entering a new cell: if no side has
+    # a wall and at least `exit_min_abnormal` of the other sides give an
+    # abnormal ToF reading (none; farther than `exit_far_m`; or more than
+    # `exit_grid_tol_m` off every grid line, where maze walls must be), look
+    # again `exit_verify_deg` either side of each direction. Still no wall ->
+    # the robot has left the maze: go back to the previous cell and stop
+    # (`on_exit = "stop"`) or keep exploring elsewhere ("continue").
+    exit_detection: bool = True
+    exit_far_m: float = 3.0
+    exit_grid_tol_m: float = 0.10
+    exit_min_abnormal: int = 2
+    exit_verify_deg: float = 20.0
+    on_exit: str = "stop"
 
 
 @dataclass(frozen=True)
@@ -209,7 +230,9 @@ class RobotIO:
     tof_index: int = 0
     tof_pivot_offset_m: float = 0.0
 
-    gimbal_pitch_deg: float = 0.0
+    # Slightly down, as the previous team found on this robot: level, the
+    # ToF beam passes over low maze walls at long range.
+    gimbal_pitch_deg: float = -4.0
     gimbal_speed_dps: float = 180.0
     gimbal_timeout_s: float = 4.0
     gimbal_settle_s: float = 0.10
@@ -245,3 +268,30 @@ class Config:
 
 
 DEFAULT = Config()
+
+
+MOUNTS_FILE = "calibration/mounts.json"
+
+
+def with_calibration(cfg: Config = DEFAULT, path: str = MOUNTS_FILE) -> Config:
+    """Apply measured sensor offsets from `tools.calibrate_mounts`, if present.
+
+    The offsets are *effective* ones: measured against the walls of the real
+    maze, so they also absorb wall thickness and small sensor biases.
+    """
+    if not os.path.exists(path):
+        return cfg
+    with open(path, encoding="utf-8") as f:
+        m = json.load(f)
+    s = cfg.sensors
+    sensors = replace(
+        s,
+        tof=replace(s.tof, forward_m=float(m.get("tof_pivot_forward_m", s.tof.forward_m))),
+        sharp_left=replace(s.sharp_left, right_m=-float(m.get("sharp_left_offset_m", -s.sharp_left.right_m))),
+        sharp_right=replace(s.sharp_right, right_m=float(m.get("sharp_right_offset_m", s.sharp_right.right_m))),
+    )
+    robot_io = replace(
+        cfg.robot_io,
+        tof_pivot_offset_m=float(m.get("tof_emitter_offset_m", cfg.robot_io.tof_pivot_offset_m)),
+    )
+    return replace(cfg, sensors=sensors, robot_io=robot_io)

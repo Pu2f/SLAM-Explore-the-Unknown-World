@@ -7,6 +7,8 @@ import pytest
 from slam.config import DEFAULT, AdapterPort
 from slam.robot_io import RealRobot
 
+PITCH = int(round(DEFAULT.robot_io.gimbal_pitch_deg))
+
 
 class Clock:
     def __init__(self):
@@ -135,7 +137,7 @@ def test_start_subscribes_everything_and_zeroes():
     robot, sdk, _ = make()
     assert sdk.mode == "free"
     assert set(sdk.chassis.subs) == {"position", "attitude"}
-    assert sdk.gimbal.moves[-1] == (0, 0)
+    assert sdk.gimbal.moves[-1] == (PITCH, 0)
     assert robot.odometry() == (0.0, 0.0)
     assert robot.imu_yaw() == 0.0
     robot.close()
@@ -173,7 +175,7 @@ def test_sign_flags():
     sdk.chassis.subs["attitude"]((-20.0, 0.0, 0.0))
     assert robot.imu_yaw() == pytest.approx(20.0)
     robot.gimbal_moveto(90.0)
-    assert sdk.gimbal.moves[-1] == (0, -90)
+    assert sdk.gimbal.moves[-1] == (PITCH, -90)
     assert robot.gimbal_yaw() == pytest.approx(90.0)
 
 
@@ -280,3 +282,29 @@ def test_connect_failure_gives_a_clear_message(monkeypatch, failure):
     with pytest.raises(RuntimeError, match="cannot connect to the robot"):
         RealRobot.connect(io_cfg())
     assert closed == [True]
+
+
+def test_sharp_closer_than_table_reads_minimum_not_none():
+    robot, sdk, _ = make()
+    io = [1] * 12
+    adc = [0] * 12
+    adc[DEFAULT.robot_io.sharp_left.index] = 900  # closer than the 0.10 m point
+    sdk.sensor_adaptor.cb((io, adc))
+    left, _ = robot.sharp()
+    assert left == pytest.approx(DEFAULT.sensors.sharp_min_m)
+
+
+def test_with_calibration_applies_measured_mounts(tmp_path):
+    import json
+
+    from slam.config import with_calibration
+
+    path = tmp_path / "mounts.json"
+    path.write_text(json.dumps({"tof_emitter_offset_m": 0.18, "tof_pivot_forward_m": 0.03,
+                                "sharp_left_offset_m": 0.17, "sharp_right_offset_m": 0.19}))
+    cfg = with_calibration(DEFAULT, str(path))
+    assert cfg.robot_io.tof_pivot_offset_m == 0.18
+    assert cfg.sensors.tof.forward_m == 0.03
+    assert cfg.sensors.sharp_left.right_m == -0.17
+    assert cfg.sensors.sharp_right.right_m == 0.19
+    assert with_calibration(DEFAULT, str(tmp_path / "missing.json")) is DEFAULT

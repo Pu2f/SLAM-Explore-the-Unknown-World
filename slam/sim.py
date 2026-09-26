@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from .config import DEFAULT, Config, Mount, SimNoise
 from .geometry import (
@@ -81,6 +81,26 @@ def generate_maze(width: int, height: int, seed: int = 0, loops: int = 0) -> Wal
     return m
 
 
+def room_walls(
+    maze: WallMap, cell_size: float, margin_m: Union[float, Tuple[float, float, float, float]]
+) -> List[Segment]:
+    """Four walls of a room around the maze, ``margin_m`` outside its edge
+    (one value for all sides, or (S, E, N, W))."""
+    b = maze.bounds()
+    if b is None:
+        return []
+    ms, me, mn, mw = (margin_m,) * 4 if isinstance(margin_m, (int, float)) else margin_m
+    h = cell_size / 2.0
+    x0, y0 = b[0] * cell_size - h - mw, b[1] * cell_size - h - ms
+    x1, y1 = b[2] * cell_size + h + me, b[3] * cell_size + h + mn
+    return [
+        Segment(x0, y0, x1, y0),
+        Segment(x1, y0, x1, y1),
+        Segment(x1, y1, x0, y1),
+        Segment(x0, y1, x0, y0),
+    ]
+
+
 def wall_segments(maze: WallMap, cell_size: float) -> List[Segment]:
     return [
         wall_segment((x, y), d, cell_size)
@@ -98,13 +118,20 @@ class SimRobot(RobotAPI):
         config: Config = DEFAULT,
         noise: Optional[SimNoise] = None,
         seed: int = 0,
+        room_margin_m: Union[None, float, Tuple[float, float, float, float]] = None,
     ) -> None:
+        """``room_margin_m``: put the walls of a room this far outside the
+        maze's bounding box (one value, or (S, E, N, W) per side). A real arena sits in a room, so a ToF looking
+        out through a gap in the outer wall sees something at a few metres
+        (not nothing at all), which is what makes a fake exit look open."""
         self.maze = maze
         self.cfg = config
         self.noise = noise if noise is not None else config.sim_noise
         self.rng = random.Random(seed)
         self.cell_size = config.geometry.cell_size_m
         self.segments = wall_segments(maze, self.cell_size)
+        if room_margin_m is not None:
+            self.segments += room_walls(maze, self.cell_size, room_margin_m)
 
         # Rotation from the map frame to the world frame (clockwise, degrees).
         self.start_cell = start_cell
@@ -203,7 +230,9 @@ class SimRobot(RobotAPI):
             d = self._ray(mount)
             if d is not None:
                 d += self.rng.gauss(0.0, self.noise.sharp_std_frac * d)
-            out.append(d if d is not None and s.sharp_min_m <= d <= s.sharp_max_m else None)
+            if d is not None:
+                d = max(d, s.sharp_min_m)  # too close reads as the minimum range
+            out.append(d if d is not None and d <= s.sharp_max_m else None)
         return out[0], out[1]
 
     def ir_front(self) -> Tuple[bool, bool]:

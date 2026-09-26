@@ -149,6 +149,7 @@ class EKF:
             return UpdateResult(False, nu, math.sqrt(m2))
 
         K = (self.cov @ H.T) / S  # 3x1
+        K[2, 0] *= self.p.heading_update_gain  # heading comes from the IMU
         self.state = self.state + (K * nu).ravel()
         self.state[2] = _wrap_rad(self.state[2])
         I_KH = np.eye(3) - K @ H

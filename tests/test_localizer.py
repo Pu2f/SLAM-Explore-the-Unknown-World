@@ -82,3 +82,23 @@ def test_grazing_ray_is_not_used():
 def test_sharp_std_grows_with_distance():
     ekf = EKF(P)
     assert ekf.sharp_std(0.6) > ekf.sharp_std(0.2)
+
+
+def test_range_updates_leave_heading_to_the_imu_by_default():
+    ekf = EKF(P, Pose(0.0, 0.0, 3.0))
+    ekf.cov[2, 2] = math.radians(5) ** 2
+    ekf.cov[0, 2] = ekf.cov[2, 0] = 0.001  # correlated with x, as after driving
+    for _ in range(5):
+        ekf.update_range(0.30, FRONT, 90.0, Line("x", 0.35), 0.01)
+    assert ekf.pose.heading_deg == pytest.approx(3.0)
+    assert abs(ekf.pose.x - 0.05) < 0.01  # position still corrected
+
+
+def test_heading_gain_allows_heading_updates():
+    from dataclasses import replace
+
+    ekf = EKF(replace(P, heading_update_gain=1.0), Pose(0.0, 0.0, 3.0))
+    ekf.cov[2, 2] = math.radians(5) ** 2
+    ekf.cov[0, 2] = ekf.cov[2, 0] = 0.001
+    ekf.update_range(0.30, FRONT, 90.0, Line("x", 0.35), 0.01)
+    assert ekf.pose.heading_deg != pytest.approx(3.0)

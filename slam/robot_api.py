@@ -59,7 +59,11 @@ class RobotAPI(ABC):
     # ---- side / front IR -----------------------------------------------------
     @abstractmethod
     def sharp(self) -> Tuple[Optional[float], Optional[float]]:
-        """(left, right) Sharp distances (m), None when outside the valid range."""
+        """(left, right) Sharp distances (m).
+
+        Closer than the minimum range reads as the minimum range (a wall is
+        right there); farther than the maximum range reads None.
+        """
 
     @abstractmethod
     def ir_front(self) -> Tuple[bool, bool]:

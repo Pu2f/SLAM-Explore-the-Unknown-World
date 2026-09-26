@@ -15,7 +15,7 @@ import sys
 import time
 from typing import Optional, Sequence
 
-from slam.config import DEFAULT
+from slam.config import DEFAULT, with_calibration
 from slam.geometry import angle_diff
 from slam.robot_io import RealRobot
 
@@ -191,7 +191,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--seconds", type=float, default=30.0, help="how long `streams` / `adapter` run")
     args = p.parse_args(argv)
 
-    robot = RealRobot.connect(DEFAULT)
+    robot = RealRobot.connect(with_calibration(DEFAULT))
     try:
         if args.check == "streams":
             streams(robot, args.seconds)

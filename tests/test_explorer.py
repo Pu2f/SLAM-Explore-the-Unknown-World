@@ -10,7 +10,7 @@ from slam.config import DEFAULT, PERFECT_SIM
 from slam.explorer import Explorer
 from slam.geometry import Direction
 from slam.logger import RunLogger
-from slam.maze_map import WallMap
+from slam.maze_map import EdgeState, WallMap
 from slam.sim import SimRobot, generate_maze
 from tools.evaluate import Alignment, evaluate, load_map
 from tools.run_sim import main as run_sim_main
@@ -97,3 +97,45 @@ def test_run_sim_cli(tmp_path, capsys):
     run_dirs = list(tmp_path.iterdir())
     assert len(run_dirs) == 1
     assert (run_dirs[0] / "ground_truth.txt").exists()
+
+
+ROOM = (1.33, 1.1, 0.95, 1.7)  # room walls at uneven distances, like a real room
+
+
+def maze_with_exit(seed):
+    gt = generate_maze(3, 3, seed=seed)
+    gt.set((1, 0), Direction.S, EdgeState.OPEN)  # a gap in the outer wall
+    return gt
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_exit_is_found_and_the_robot_returns_and_stops(seed):
+    gt = maze_with_exit(seed)
+    robot = SimRobot(gt, (1, 1), Direction.N, noise=DEFAULT.sim_noise, seed=seed, room_margin_m=ROOM)
+    result = Explorer(robot, DEFAULT).run()
+    assert result.reason == "exit_found"
+    assert result.map.outside == {(0, -2)}  # GT (1, -1), just below the gap
+    wm = Alignment((1, 1), Direction.N).apply(result.map.to_wallmap())
+    assert wm.cells <= gt.cells  # nothing outside the maze left in the map
+    assert result.end_cell == (0, -1)  # back in the gap cell
+    assert robot.collisions == 0
+
+
+def test_exit_continue_mode_maps_the_rest():
+    cfg = replace(DEFAULT, exploration=replace(DEFAULT.exploration, on_exit="continue"))
+    gt = maze_with_exit(0)
+    robot = SimRobot(gt, (1, 1), Direction.N, config=cfg, seed=0, room_margin_m=ROOM)
+    result = Explorer(robot, cfg).run()
+    assert result.reason == "complete"
+    m = evaluate(Alignment((1, 1), Direction.N).apply(result.map.to_wallmap()), gt)
+    assert m.map_accuracy_pct == 100.0
+    assert m.phantom_cells == []
+
+
+@pytest.mark.parametrize("seed", [3, 4])
+def test_no_false_exit_in_open_closed_maze(seed):
+    gt = generate_maze(4, 4, seed=seed, loops=10)  # big open areas, but closed
+    robot = SimRobot(gt, (1, 1), Direction.E, noise=DEFAULT.sim_noise, seed=seed, room_margin_m=ROOM)
+    result = Explorer(robot, DEFAULT).run()
+    assert result.reason == "complete"
+    assert result.map.outside == set()

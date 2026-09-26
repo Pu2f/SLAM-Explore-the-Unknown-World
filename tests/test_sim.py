@@ -119,7 +119,7 @@ def test_sharp_and_ir():
 
     drive(robot, 0.0, 0.3, 0.0, 0.4)  # close to the E wall
     left, right = robot.sharp()
-    assert right is None  # closer than the Sharp minimum range
+    assert right == pytest.approx(s.sharp_min_m)  # closer than the minimum range: reads the minimum
     assert robot.ir_front() == (False, True)
 
     drive(robot, 0.3, 0.0, 0.0, 2.0)  # into the open E-W corridor
@@ -143,3 +143,14 @@ def test_seeded_noise_is_reproducible():
         return robot.odometry(), robot.imu_yaw(), robot.tof()
 
     assert run() == run()
+
+
+def test_room_walls_are_seen_through_a_gap():
+    maze = corridor()
+    maze.set((0, 0), Direction.S, EdgeState.OPEN)
+    no_room = SimRobot(maze, (0, 0), Direction.N, noise=PERFECT_SIM)
+    no_room.gimbal_moveto(180)
+    assert no_room.tof() is None
+    room = SimRobot(maze, (0, 0), Direction.N, noise=PERFECT_SIM, room_margin_m=(1.0, 2.0, 2.0, 2.0))
+    room.gimbal_moveto(180)
+    assert room.tof() == pytest.approx(CELL / 2 + 1.0)
